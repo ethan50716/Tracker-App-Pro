@@ -1,0 +1,1995 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Dugout Tracker</title>
+  
+  <!-- iOS Web App Full-Screen Capabilities -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Dugout Tracker" />
+  <link rel="apple-touch-icon" href="https://img.icons8.com/color/180/baseball.png" />
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  </script>
+
+  <style>
+    * {
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+    .strike-zone-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      grid-template-rows: repeat(3, 1fr);
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 4px;
+      height: 4px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: #111827;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #374151;
+      border-radius: 2px;
+    }
+    @keyframes pulse-subtle {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.85; transform: scale(1.02); }
+    }
+    .leverage-pulse {
+      animation: pulse-subtle 1.8s infinite ease-in-out;
+    }
+  </style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen flex flex-col font-sans antialiased overflow-x-hidden">
+
+  <!-- TOP APP BAR -->
+  <header class="bg-gray-900 border-b border-gray-800 px-4 py-2.5 sticky top-0 z-40 flex items-center justify-between shadow-lg">
+    <div class="flex items-center space-x-3">
+      <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-emerald-600/20 text-emerald-400 border border-emerald-500/30">
+        <i data-lucide="activity" class="w-5 h-5"></i>
+      </div>
+      <div>
+        <div class="flex items-center space-x-2">
+          <h1 class="text-sm font-black tracking-wider uppercase text-white">DUGOUT ANALYTICS</h1>
+          <span id="storage-indicator" class="flex items-center text-[10px] bg-emerald-950/80 text-emerald-400 border border-emerald-800 px-2 py-0.5 rounded-full font-mono">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse mr-1"></span> AUTO-SAVED
+          </span>
+        </div>
+        <p class="text-[11px] text-gray-400 font-medium"><span id="header-matchup">SLU vs Opponent</span></p>
+      </div>
+    </div>
+
+    <div class="flex items-center space-x-2">
+      <div class="flex items-center bg-gray-950 border border-gray-700 rounded-lg px-2.5 py-1">
+        <span class="text-[10px] text-gray-400 font-bold uppercase mr-1.5">MOUND:</span>
+        <select id="pitcher-select" onchange="switchPitcher(this.value)" class="bg-transparent text-xs font-bold text-emerald-400 outline-none cursor-pointer">
+        </select>
+      </div>
+
+      <button onclick="rollInning()" title="Roll/Flip Half-Inning" class="flex items-center space-x-1 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-600/40 text-xs font-bold px-2.5 py-1 rounded-lg transition active:scale-95">
+        <i data-lucide="rotate-cw" class="w-3.5 h-3.5"></i>
+        <span>Roll Inning</span>
+      </button>
+
+      <button onclick="exportToCSV()" class="flex items-center space-x-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3 py-1 rounded-lg transition active:scale-95 shadow">
+        <i data-lucide="download" class="w-3.5 h-3.5"></i>
+        <span>TrackMan CSV</span>
+      </button>
+
+      <!-- FULL SCREEN TOGGLE BUTTON -->
+      <button onclick="toggleFullScreen()" title="Toggle Full Screen" class="p-1.5 bg-gray-800 hover:bg-emerald-600/30 text-gray-300 hover:text-emerald-400 border border-gray-700 rounded-lg transition active:scale-95">
+        <i data-lucide="maximize" id="fullscreen-icon" class="w-4 h-4"></i>
+      </button>
+
+      <button onclick="confirmResetGame()" title="New Game / Reset" class="p-1.5 bg-gray-800 hover:bg-red-600/30 text-gray-400 hover:text-red-400 border border-gray-700 rounded-lg transition">
+        <i data-lucide="trash-2" class="w-4 h-4"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- LIVE GAME STATE HUD -->
+  <section class="bg-gray-900/90 border-b border-gray-800 px-4 py-2 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 items-center text-center">
+    <div class="bg-gray-950/70 border border-gray-800 rounded-lg p-1.5">
+      <span class="text-[10px] text-gray-400 font-semibold block uppercase">INNING</span>
+      <div class="flex items-center justify-center space-x-1">
+        <span id="inning-side-icon" class="text-xs text-amber-400 font-black">▲ TOP</span>
+        <span id="inning-text" class="text-base font-black text-white">1st</span>
+      </div>
+    </div>
+
+    <div class="bg-gray-950/70 border border-gray-800 rounded-lg p-1.5">
+      <span class="text-[10px] text-gray-400 font-semibold block uppercase">COUNT & OUTS</span>
+      <div class="flex items-center justify-center space-x-2">
+        <span id="count-display" class="text-base font-black text-white tracking-wide">0 - 0</span>
+        <span class="text-gray-600 font-black">|</span>
+        <div class="flex space-x-1 items-center">
+          <span id="out-dot-1" class="w-2.5 h-2.5 rounded-full bg-gray-700 border border-gray-600"></span>
+          <span id="out-dot-2" class="w-2.5 h-2.5 rounded-full bg-gray-700 border border-gray-600"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-gray-950/70 border border-gray-800 rounded-lg p-1.5">
+      <span class="text-[10px] text-gray-400 font-semibold block uppercase">PITCHES (TOT / INN)</span>
+      <div class="text-base font-black text-emerald-400">
+        <span id="hud-total-pitches">0</span> <span class="text-xs text-gray-500 font-normal">/</span> <span id="hud-inn-pitches" class="text-white text-sm">0</span>
+      </div>
+    </div>
+
+    <div class="bg-gray-950/70 border border-gray-800 rounded-lg p-1.5">
+      <span class="text-[10px] text-gray-400 font-semibold block uppercase">STRIKE % (S / B)</span>
+      <div class="text-sm font-black text-white">
+        <span id="hud-strike-pct" class="text-emerald-400 text-base">0.0%</span>
+        <span class="text-[11px] text-gray-400 font-normal">(<span id="hud-strikes">0</span>/<span id="hud-balls">0</span>)</span>
+      </div>
+    </div>
+
+    <div id="stat-1-1-card" class="bg-gray-950/70 border border-gray-800 rounded-lg p-1.5 relative transition-all duration-300">
+      <span class="text-[10px] text-amber-400 font-bold block uppercase flex items-center justify-center">
+        <i data-lucide="target" class="w-3 h-3 mr-1 text-amber-400"></i> 1-1 WIN %
+      </span>
+      <div class="text-sm font-black text-white">
+        <span id="hud-1-1-win-pct" class="text-amber-400 text-base">0.0%</span>
+        <span class="text-[11px] text-gray-400 font-normal">(<span id="hud-1-1-wins">0</span>/<span id="hud-1-1-total">0</span>)</span>
+      </div>
+    </div>
+
+    <div class="bg-gray-950/70 border border-gray-800 rounded-lg p-1.5">
+      <span class="text-[10px] text-gray-400 font-semibold block uppercase">FPS %</span>
+      <div class="text-base font-black text-cyan-400" id="hud-fps-pct">0.0%</div>
+    </div>
+
+    <div class="bg-gray-950/70 border border-gray-800 rounded-lg p-1.5">
+      <span class="text-[10px] text-gray-400 font-semibold block uppercase">WHIFF % (SWINGS)</span>
+      <div class="text-sm font-black text-white">
+        <span id="hud-whiff-pct" class="text-purple-400 text-base">0.0%</span>
+        <span class="text-[11px] text-gray-400 font-normal">(<span id="hud-whiff-count">0</span>/<span id="hud-swing-count">0</span>)</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- NAVIGATION TABS -->
+  <nav class="bg-gray-900 border-b border-gray-800 px-4 flex space-x-6 text-xs font-bold">
+    <button onclick="switchTab('charting')" id="tab-btn-charting" class="py-2.5 border-b-2 border-emerald-500 text-emerald-400 flex items-center space-x-1.5">
+      <i data-lucide="crosshair" class="w-4 h-4"></i>
+      <span>LIVE CHARTING & TALLY</span>
+    </button>
+    <button onclick="switchTab('scouting')" id="tab-btn-scouting" class="py-2.5 border-b-2 border-transparent text-gray-400 hover:text-gray-200 flex items-center space-x-1.5">
+      <i data-lucide="book-open" class="w-4 h-4"></i>
+      <span>SCOUTING & CUES HUB</span>
+    </button>
+    <button onclick="switchTab('roster')" id="tab-btn-roster" class="py-2.5 border-b-2 border-transparent text-gray-400 hover:text-gray-200 flex items-center space-x-1.5">
+      <i data-lucide="users" class="w-4 h-4"></i>
+      <span>TEAMS & ROSTERS</span>
+    </button>
+    <button onclick="switchTab('gamelog')" id="tab-btn-gamelog" class="py-2.5 border-b-2 border-transparent text-gray-400 hover:text-gray-200 flex items-center space-x-1.5">
+      <i data-lucide="list" class="w-4 h-4"></i>
+      <span>PITCH LOG (<span id="tab-pitch-count">0</span>)</span>
+    </button>
+  </nav>
+
+  <!-- MAIN VIEWPORT -->
+  <main class="flex-1 p-3 sm:p-4 max-w-7xl w-full mx-auto">
+
+    <!-- ==================== TAB 1: LIVE CHARTING ==================== -->
+    <div id="view-charting" class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+
+      <!-- LEFT COLUMN: BATTER AT-A-GLANCE & HIGHLIGHTED STAT ARCHETYPES -->
+      <div class="lg:col-span-3 space-y-3">
+        <div class="bg-gray-900 border border-gray-800 rounded-xl p-3.5 shadow-md">
+          <div class="flex items-center justify-between border-b border-gray-800 pb-2 mb-2">
+            <div>
+              <span class="text-[10px] text-gray-500 font-bold uppercase tracking-wider">AT THE PLATE</span>
+              <div class="flex items-center space-x-1.5">
+                <span id="batter-order-num" class="bg-gray-800 text-gray-300 text-xs px-1.5 py-0.5 rounded font-black font-mono">#1</span>
+                <h3 id="batter-name" class="text-sm font-black text-white">#5 Champagne</h3>
+              </div>
+            </div>
+            <div class="text-right">
+              <span id="batter-side-badge" class="bg-blue-950 text-blue-400 border border-blue-800 text-[10px] font-black px-2 py-0.5 rounded uppercase">LHH</span>
+              <button onclick="openSubModal()" class="block text-[10px] text-emerald-400 hover:underline mt-1 font-bold">Sub / PH</button>
+            </div>
+          </div>
+
+          <!-- Highlighted Scout Profile & Archetypes -->
+          <div class="bg-gray-950 rounded-lg p-2.5 border border-gray-800 mb-2.5 space-y-1.5">
+            <div class="flex items-center justify-between">
+              <span class="text-[9px] text-gray-400 font-bold uppercase">SCOUT PROFILE:</span>
+              <span id="batter-statline" class="text-[10px] font-mono text-emerald-400 font-bold">.384 / .470 / .520 • 4 HR • 11 SB</span>
+            </div>
+            <div id="batter-archetype-badges" class="flex flex-wrap gap-1">
+            </div>
+          </div>
+
+          <!-- Previous At-Bat Result -->
+          <div class="bg-gray-950 rounded-lg p-2 border border-gray-800/80 mb-2.5">
+            <span class="text-[9px] text-gray-400 font-bold uppercase block mb-0.5">PREVIOUS AT-BAT:</span>
+            <p id="batter-last-ab" class="text-xs font-semibold text-amber-300">No prior plate appearances today</p>
+          </div>
+
+          <!-- Live Scouting Cues Overlay -->
+          <div class="space-y-1.5">
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] text-gray-400 font-bold uppercase flex items-center">
+                <i data-lucide="alert-triangle" class="w-3 h-3 text-amber-400 mr-1"></i> HITTER GAME PLAN
+              </span>
+              <button onclick="switchTab('scouting')" class="text-[9px] text-gray-400 hover:text-white underline">Edit</button>
+            </div>
+            <div id="batter-scouting-tags" class="flex flex-wrap gap-1">
+            </div>
+            <p id="batter-scouting-notes" class="text-[11px] text-gray-300 italic bg-gray-950/60 p-2 rounded border border-gray-800/60">
+              Plus runner. C/INF (Fr.) Dutchtown HS. Aggressive contact bat.
+            </p>
+          </div>
+        </div>
+
+        <!-- Previous Pitch Sequence for this Batter -->
+        <div class="bg-gray-900 border border-gray-800 rounded-xl p-3 shadow-md">
+          <div class="flex items-center justify-between border-b border-gray-800 pb-1.5 mb-2">
+            <span class="text-[10px] text-gray-400 font-bold uppercase tracking-wider">CURRENT AB SEQUENCE</span>
+            <span id="seq-pitch-count" class="text-[10px] text-gray-400 font-mono">0 Pitches</span>
+          </div>
+          <div id="sequence-list" class="space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar text-xs">
+            <div class="text-[11px] text-gray-500 italic text-center py-3">No pitches thrown this at-bat</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CENTER COLUMN: RAPID LOGGING INTERFACE & OPTIMIZED STRIKE ZONE -->
+      <div class="lg:col-span-5 space-y-3">
+        <div class="bg-gray-900 border border-gray-800 rounded-xl p-3.5 shadow-md flex flex-col items-center">
+          <div class="w-full flex justify-between items-center mb-2 px-1">
+            <span class="text-[10px] text-gray-400 font-bold uppercase flex items-center">
+              <i data-lucide="crosshair" class="w-3.5 h-3.5 text-emerald-400 mr-1"></i> TAP LOCATION (OR CHOOSE CALL)
+            </span>
+            <span id="selected-loc-label" class="text-[10px] font-mono text-emerald-400 font-bold">Location: Up-In (Zone 1)</span>
+          </div>
+
+          <!-- STRIKE ZONE INTERFACE -->
+          <div class="relative w-full max-w-[340px] sm:max-w-[360px] bg-gray-950 border border-gray-800 rounded-2xl p-2.5 flex flex-col items-center justify-center space-y-2 shadow-inner">
+            
+            <!-- OUTSIDE 1: CHASE HIGH -->
+            <button onclick="selectZone(5, 'Chase High')" id="zone-btn-5" class="w-full py-2 bg-gray-900 hover:bg-emerald-950/40 text-gray-300 hover:text-emerald-300 border border-dashed border-gray-700/80 rounded-xl text-[11px] font-bold uppercase tracking-wider transition active:scale-98">
+              ▲ Chase High / Waste
+            </button>
+
+            <!-- MIDDLE ROW: CHASE IN - 2X2 IN-ZONE - CHASE AWAY -->
+            <div class="w-full flex items-stretch space-x-2">
+              <!-- OUTSIDE 2: CHASE ARM / IN -->
+              <button onclick="selectZone(6, 'Chase In (Arm)')" id="zone-btn-6" class="w-16 sm:w-20 bg-gray-900 hover:bg-emerald-950/40 text-gray-300 hover:text-emerald-300 border border-dashed border-gray-700/80 rounded-xl text-[10px] font-bold uppercase tracking-tight flex flex-col items-center justify-center p-1 transition active:scale-98 text-center leading-tight">
+                <span>◀ In</span>
+                <span class="text-[9px] text-gray-400 font-medium">(Arm)</span>
+              </button>
+
+              <!-- 2x2 IN-ZONE GRID -->
+              <div class="relative flex-1 grid grid-cols-2 grid-rows-2 gap-1.5 h-44 bg-gray-900/90 border-2 border-emerald-500/80 rounded-2xl p-1.5 shadow-inner">
+                <button onclick="selectZone(1, 'In-Zone Up-In')" id="zone-btn-1" class="bg-gray-800/90 hover:bg-emerald-600/30 border border-emerald-500/30 rounded-xl flex flex-col items-center justify-center active:scale-95 transition p-1.5">
+                  <span id="zone-label-1" class="text-xs sm:text-sm font-bold tracking-tight text-emerald-400 leading-tight">Up-In</span>
+                  <span id="zone-sub-1" class="text-[10px] font-mono text-gray-400 mt-0.5">Zone 1</span>
+                </button>
+                <button onclick="selectZone(2, 'In-Zone Up-Away')" id="zone-btn-2" class="bg-gray-800/90 hover:bg-emerald-600/30 border border-emerald-500/30 rounded-xl flex flex-col items-center justify-center active:scale-95 transition p-1.5">
+                  <span id="zone-label-2" class="text-xs sm:text-sm font-bold tracking-tight text-emerald-400 leading-tight">Up-Away</span>
+                  <span id="zone-sub-2" class="text-[10px] font-mono text-gray-400 mt-0.5">Zone 2</span>
+                </button>
+                <button onclick="selectZone(3, 'In-Zone Down-In')" id="zone-btn-3" class="bg-gray-800/90 hover:bg-emerald-600/30 border border-emerald-500/30 rounded-xl flex flex-col items-center justify-center active:scale-95 transition p-1.5">
+                  <span id="zone-label-3" class="text-xs sm:text-sm font-bold tracking-tight text-emerald-400 leading-tight">Down-In</span>
+                  <span id="zone-sub-3" class="text-[10px] font-mono text-gray-400 mt-0.5">Zone 3</span>
+                </button>
+                <button onclick="selectZone(4, 'In-Zone Down-Away')" id="zone-btn-4" class="bg-gray-800/90 hover:bg-emerald-600/30 border border-emerald-500/30 rounded-xl flex flex-col items-center justify-center active:scale-95 transition p-1.5">
+                  <span id="zone-label-4" class="text-xs sm:text-sm font-bold tracking-tight text-emerald-400 leading-tight">Down-Away</span>
+                  <span id="zone-sub-4" class="text-[10px] font-mono text-gray-400 mt-0.5">Zone 4</span>
+                </button>
+              </div>
+
+              <!-- OUTSIDE 3: CHASE GLOVE / AWAY -->
+              <button onclick="selectZone(7, 'Chase Away (Glove)')" id="zone-btn-7" class="w-16 sm:w-20 bg-gray-900 hover:bg-emerald-950/40 text-gray-300 hover:text-emerald-300 border border-dashed border-gray-700/80 rounded-xl text-[10px] font-bold uppercase tracking-tight flex flex-col items-center justify-center p-1 transition active:scale-98 text-center leading-tight">
+                <span>Away ▶</span>
+                <span class="text-[9px] text-gray-400 font-medium">(Glove)</span>
+              </button>
+            </div>
+
+            <!-- OUTSIDE 4: CHASE DIRT -->
+            <button onclick="selectZone(8, 'Chase Dirt / Below')" id="zone-btn-8" class="w-full py-2 bg-gray-900 hover:bg-emerald-950/40 text-gray-300 hover:text-emerald-300 border border-dashed border-gray-700/80 rounded-xl text-[11px] font-bold uppercase tracking-wider transition active:scale-98">
+              ▼ Chase Dirt / Below
+            </button>
+          </div>
+
+          <!-- Pitch Selection Strip -->
+          <div class="w-full mt-3">
+            <span class="text-[10px] text-gray-400 font-bold uppercase block mb-1.5 px-1">SELECT PITCH TYPE:</span>
+            <div id="pitch-type-buttons" class="grid grid-cols-4 sm:grid-cols-7 gap-1.5">
+              <button onclick="selectPitchType('4S')" id="pt-4S" class="py-2.5 rounded-lg bg-emerald-600 text-white font-black text-xs border border-emerald-400 shadow active:scale-95 transition">4S</button>
+              <button onclick="selectPitchType('SI')" id="pt-SI" class="py-2.5 rounded-lg bg-gray-800 text-gray-200 hover:bg-gray-700 font-black text-xs border border-gray-700 active:scale-95 transition">SI</button>
+              <button onclick="selectPitchType('CT')" id="pt-CT" class="py-2.5 rounded-lg bg-gray-800 text-gray-200 hover:bg-gray-700 font-black text-xs border border-gray-700 active:scale-95 transition">CT</button>
+              <button onclick="selectPitchType('SL')" id="pt-SL" class="py-2.5 rounded-lg bg-gray-800 text-gray-200 hover:bg-gray-700 font-black text-xs border border-gray-700 active:scale-95 transition">SL</button>
+              <button onclick="selectPitchType('CB')" id="pt-CB" class="py-2.5 rounded-lg bg-gray-800 text-gray-200 hover:bg-gray-700 font-black text-xs border border-gray-700 active:scale-95 transition">CB</button>
+              <button onclick="selectPitchType('CH')" id="pt-CH" class="py-2.5 rounded-lg bg-gray-800 text-gray-200 hover:bg-gray-700 font-black text-xs border border-gray-700 active:scale-95 transition">CH</button>
+              <button onclick="selectPitchType('SPL')" id="pt-SPL" class="py-2.5 rounded-lg bg-gray-800 text-gray-200 hover:bg-gray-700 font-black text-xs border border-gray-700 active:scale-95 transition">SPL</button>
+            </div>
+          </div>
+
+          <!-- Direct Pitch Call Action Buttons -->
+          <div class="w-full mt-3.5 space-y-2">
+            <span class="text-[10px] text-gray-400 font-bold uppercase block px-1">LOG PITCH RESULT:</span>
+            <div class="grid grid-cols-3 gap-2">
+              <button onclick="recordPitch('BallCalled')" class="py-3 bg-blue-950/80 hover:bg-blue-900 border border-blue-700 text-blue-200 font-black text-xs rounded-xl shadow active:scale-95 flex flex-col items-center justify-center">
+                <span class="text-sm">BALL</span>
+                <span class="text-[9px] text-blue-400 font-normal">Take / Dirt</span>
+              </button>
+
+              <button onclick="recordPitch('StrikeCalled')" class="py-3 bg-amber-950/80 hover:bg-amber-900 border border-amber-600 text-amber-200 font-black text-xs rounded-xl shadow active:scale-95 flex flex-col items-center justify-center">
+                <span class="text-sm">CALLED STR</span>
+                <span class="text-[9px] text-amber-400 font-normal">Looking</span>
+              </button>
+
+              <button onclick="recordPitch('StrikeSwinging')" class="py-3 bg-purple-950/80 hover:bg-purple-900 border border-purple-600 text-purple-200 font-black text-xs rounded-xl shadow active:scale-95 flex flex-col items-center justify-center">
+                <span class="text-sm">WHIFF</span>
+                <span class="text-[9px] text-purple-400 font-normal">Swinging Strike</span>
+              </button>
+
+              <button onclick="recordPitch('FoulBall')" class="py-2.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-200 font-black text-xs rounded-xl shadow active:scale-95 flex flex-col items-center justify-center">
+                <span>FOUL</span>
+                <span class="text-[9px] text-gray-400 font-normal">2-Strike Hold</span>
+              </button>
+
+              <button onclick="openInPlayModal()" class="py-2.5 bg-emerald-900/80 hover:bg-emerald-800 border border-emerald-600 text-emerald-200 font-black text-xs rounded-xl shadow active:scale-95 flex flex-col items-center justify-center">
+                <span class="text-sm">IN PLAY</span>
+                <span class="text-[9px] text-emerald-300 font-normal">Hit / Out / Error</span>
+              </button>
+
+              <button onclick="recordPitch('HitByPitch')" class="py-2.5 bg-rose-950/80 hover:bg-rose-900 border border-rose-700 text-rose-300 font-black text-xs rounded-xl shadow active:scale-95 flex flex-col items-center justify-center">
+                <span>HBP</span>
+                <span class="text-[9px] text-rose-400 font-normal">Hit By Pitch</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT COLUMN: LIVE ARSENAL PITCH TALLY & CSW BREAKDOWN -->
+      <div class="lg:col-span-4 space-y-3">
+        <div class="bg-gray-900 border border-gray-800 rounded-xl p-3.5 shadow-md">
+          <div class="flex items-center justify-between border-b border-gray-800 pb-2 mb-2">
+            <div class="flex items-center space-x-1.5">
+              <i data-lucide="bar-chart-2" class="w-4 h-4 text-emerald-400"></i>
+              <h3 class="text-xs font-black text-white uppercase tracking-wider">LIVE ARSENAL TALLY</h3>
+            </div>
+            <span id="tally-pitcher-label" class="text-[10px] font-bold text-gray-400">Robb, Carson</span>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+              <thead>
+                <tr class="text-[10px] text-gray-400 border-b border-gray-800">
+                  <th class="pb-1.5 font-bold">TYPE</th>
+                  <th class="pb-1.5 font-bold text-center">THROWN</th>
+                  <th class="pb-1.5 font-bold text-center">STR %</th>
+                  <th class="pb-1.5 font-bold text-center">WHIFF %</th>
+                  <th class="pb-1.5 font-bold text-center">CSW %</th>
+                </tr>
+              </thead>
+              <tbody id="arsenal-table-body" class="divide-y divide-gray-800/60 font-mono">
+              </tbody>
+            </table>
+          </div>
+
+          <div class="mt-3 bg-gray-950 p-2.5 rounded-lg border border-gray-800 text-xs space-y-1">
+            <div class="flex justify-between items-center text-gray-400">
+              <span>Primary Weapon:</span>
+              <span id="tally-top-weapon" class="font-bold text-emerald-400">Fastball</span>
+            </div>
+            <div class="flex justify-between items-center text-gray-400">
+              <span>In-Zone Pitch Rate:</span>
+              <span id="tally-zone-rate" class="font-bold text-white">0.0%</span>
+            </div>
+            <div class="flex justify-between items-center text-gray-400">
+              <span>Early Count (0-0/1-0) Strikes:</span>
+              <span id="tally-early-str" class="font-bold text-white">0.0%</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick Dugout Controls -->
+        <div class="bg-gray-900 border border-gray-800 rounded-xl p-3 shadow-md space-y-2">
+          <span class="text-[10px] text-gray-400 font-bold uppercase tracking-wider block">DUGOUT CONTROLS:</span>
+          <div class="grid grid-cols-2 gap-2">
+            <button onclick="clearBases()" class="py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 font-bold text-xs rounded-lg transition border border-gray-700">
+              Clear Count
+            </button>
+            <button onclick="addExtraHitterPrompt()" class="py-2 bg-gray-800 hover:bg-gray-700 text-emerald-400 font-bold text-xs rounded-lg transition border border-gray-700">
+              + Extra Hitter
+            </button>
+            <button onclick="undoLastPitch()" class="col-span-2 py-2 bg-gray-800 hover:bg-amber-600/20 text-amber-300 border border-gray-700 hover:border-amber-500/40 font-black text-xs rounded-lg transition flex items-center justify-center space-x-1">
+              <i data-lucide="undo" class="w-3.5 h-3.5"></i>
+              <span>Undo Last Pitch</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ==================== TAB 2: SCOUTING & CUES HUB ==================== -->
+    <div id="view-scouting" class="hidden space-y-4">
+      <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 shadow-md">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-gray-800 gap-2">
+          <div>
+            <h2 class="text-sm font-black text-white uppercase tracking-wider">PRE-GAME SCOUTING & TENDENCY DOSSIER</h2>
+            <p class="text-xs text-gray-400">Notes and quick-tag tendencies auto-surface when each player is active.</p>
+          </div>
+          <div class="flex items-center space-x-2">
+            <select id="scouting-player-select" onchange="loadPlayerScoutingProfile(this.value)" class="bg-gray-950 border border-gray-700 rounded-lg px-3 py-1.5 text-xs font-bold text-emerald-400 outline-none">
+            </select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+          <div class="space-y-3">
+            <span class="text-xs font-bold text-gray-300 uppercase block">ANALYTICAL QUICK TAGS:</span>
+            <div>
+              <span class="text-[10px] text-gray-400 font-bold uppercase block mb-1">Fastball Tendencies:</span>
+              <div class="flex flex-wrap gap-1.5">
+                <button onclick="toggleScoutTag('Chase IVB Up')" class="scout-tag-btn px-2.5 py-1 text-xs rounded bg-gray-800 text-gray-300 hover:bg-emerald-600/30 border border-gray-700">Chase IVB Up</button>
+                <button onclick="toggleScoutTag('Late on High Velo (92+)')" class="scout-tag-btn px-2.5 py-1 text-xs rounded bg-gray-800 text-gray-300 hover:bg-emerald-600/30 border border-gray-700">Late on 92+</button>
+                <button onclick="toggleScoutTag('Rolls over Sinker Down')" class="scout-tag-btn px-2.5 py-1 text-xs rounded bg-gray-800 text-gray-300 hover:bg-emerald-600/30 border border-gray-700">Rolls over Sinker</button>
+                <button onclick="toggleScoutTag('Crushes Flat VAA')" class="scout-tag-btn px-2.5 py-1 text-xs rounded bg-gray-800 text-gray-300 hover:bg-red-600/30 border border-gray-700">Crushes Flat VAA</button>
+              </div>
+            </div>
+
+            <div>
+              <span class="text-[10px] text-gray-400 font-bold uppercase block mb-1">Breaking Ball Tendencies:</span>
+              <div class="flex flex-wrap gap-1.5">
+                <button onclick="toggleScoutTag('Chases SL Down & Away')" class="scout-tag-btn px-2.5 py-1 text-xs rounded bg-gray-800 text-gray-300 hover:bg-emerald-600/30 border border-gray-700">Chases SL Down & Away</button>
+                <button onclick="toggleScoutTag('Freezes on Backdoor CB')" class="scout-tag-btn px-2.5 py-1 text-xs rounded bg-gray-800 text-gray-300 hover:bg-emerald-600/30 border border-gray-700">Freezes Backdoor CB</button>
+                <button onclick="toggleScoutTag('Spits on Early Sweep')" class="scout-tag-btn px-2.5 py-1 text-xs rounded bg-gray-800 text-gray-300 hover:bg-amber-600/30 border border-gray-700">Spits on Early Sweep</button>
+              </div>
+            </div>
+
+            <div>
+              <span class="text-[10px] text-gray-400 font-bold uppercase block mb-1">Approach & Counts:</span>
+              <div class="flex flex-wrap gap-1.5">
+                <button onclick="toggleScoutTag('Ambush 1st Pitch FB')" class="scout-tag-btn px-2.5 py-1 text-xs rounded bg-gray-800 text-gray-300 hover:bg-red-600/30 border border-gray-700">Ambush 1st Pitch</button>
+                <button onclick="toggleScoutTag('Passivity in 1-1 Counts')" class="scout-tag-btn px-2.5 py-1 text-xs rounded bg-gray-800 text-gray-300 hover:bg-emerald-600/30 border border-gray-700">Passive 1-1</button>
+                <button onclick="toggleScoutTag('Protective 2-Strike Swing')" class="scout-tag-btn px-2.5 py-1 text-xs rounded bg-gray-800 text-gray-300 hover:bg-purple-600/30 border border-gray-700">Protective 2-Strikes</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-2">
+            <span class="text-xs font-bold text-gray-300 uppercase block">CUSTOM SCOUTING NOTES & MECHANICAL CUES:</span>
+            <textarea id="scouting-text-input" oninput="saveCurrentScoutingText(this.value)" rows="8" placeholder="Enter custom scouting notes, grip cues, or attack plans for this player..." class="w-full bg-gray-950 border border-gray-700 rounded-lg p-3 text-xs text-gray-200 outline-none focus:border-emerald-500 custom-scrollbar"></textarea>
+            <div class="flex justify-between items-center text-[10px] text-gray-500">
+              <span>Auto-saves immediately to local database.</span>
+              <span id="scout-save-status" class="text-emerald-400 font-bold">Saved</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== TAB 3: TEAMS, ROSTERS & STATS ==================== -->
+    <div id="view-roster" class="hidden space-y-4">
+      
+      <!-- Top Bar: Team Manager -->
+      <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 shadow-md mb-4">
+        <div class="flex flex-col md:flex-row justify-between items-center gap-3">
+          <div class="flex items-center space-x-3 w-full md:w-auto">
+             <span class="text-xs font-bold text-gray-400 uppercase">MANAGE TEAM:</span>
+             <select id="team-manager-select" onchange="changeManagedTeam(this.value)" class="bg-gray-950 border border-gray-700 text-emerald-400 text-sm font-bold px-3 py-1.5 rounded-lg outline-none cursor-pointer flex-1">
+             </select>
+             <button onclick="createNewTeamPrompt()" class="bg-gray-800 hover:bg-gray-700 text-white font-bold text-xs px-3 py-1.5 rounded-lg border border-gray-700 whitespace-nowrap">
+               + New Team
+             </button>
+          </div>
+          <div class="flex items-center space-x-2 w-full md:w-auto">
+             <button onclick="setAsPitchingTeam()" class="flex-1 md:flex-none bg-emerald-900/60 hover:bg-emerald-800 border border-emerald-600 text-emerald-200 font-bold text-xs px-3 py-1.5 rounded-lg shadow">
+               Set as Active Pitching (Mound)
+             </button>
+             <button onclick="setAsBattingTeam()" class="flex-1 md:flex-none bg-amber-900/60 hover:bg-amber-800 border border-amber-600 text-amber-200 font-bold text-xs px-3 py-1.5 rounded-lg shadow">
+               Set as Active Opponent (Plate)
+             </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <!-- LEFT: Hitters (Lineup & Bench) -->
+        <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 shadow-md space-y-4">
+          <div class="flex justify-between items-center border-b border-gray-800 pb-2">
+            <h3 class="text-sm font-black text-white uppercase">TEAM HITTERS</h3>
+            <div class="space-x-1">
+              <button onclick="openPlayerFormModal('lineup')" class="text-xs bg-gray-800 hover:bg-gray-700 text-white px-2.5 py-1 rounded border border-gray-700">+ Add Lineup</button>
+              <button onclick="openPlayerFormModal('bench')" class="text-xs bg-gray-800 hover:bg-gray-700 text-white px-2.5 py-1 rounded border border-gray-700">+ Add Bench</button>
+            </div>
+          </div>
+          
+          <div>
+            <span class="text-[10px] font-bold text-gray-500 uppercase block mb-2">BATTING ORDER (LINEUP)</span>
+            <div id="roster-manage-lineup" class="space-y-1.5 max-h-64 overflow-y-auto custom-scrollbar"></div>
+          </div>
+          
+          <div class="pt-2 border-t border-gray-800">
+            <span class="text-[10px] font-bold text-gray-500 uppercase block mb-2">BENCH PLAYERS</span>
+            <div id="roster-manage-bench" class="space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar"></div>
+          </div>
+        </div>
+
+        <!-- RIGHT: Pitchers & Ingestion -->
+        <div class="space-y-4">
+          <!-- Pitcher List -->
+          <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 shadow-md space-y-4">
+            <div class="flex justify-between items-center border-b border-gray-800 pb-2">
+              <h3 class="text-sm font-black text-white uppercase">TEAM PITCHERS</h3>
+              <button onclick="openPlayerFormModal('pitcher')" class="text-xs bg-emerald-700 hover:bg-emerald-600 text-white px-3 py-1 rounded shadow">+ Add Pitcher</button>
+            </div>
+            <div id="roster-manage-pitchers" class="space-y-1.5 max-h-64 overflow-y-auto custom-scrollbar"></div>
+          </div>
+
+          <!-- Multi-Format Uploader: PDF Stats, Photos, CSV -->
+          <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 shadow-md space-y-3">
+            <div class="flex justify-between items-center">
+              <span class="text-xs font-bold text-white uppercase flex items-center">
+                <i data-lucide="file-text" class="w-4 h-4 text-emerald-400 mr-1.5"></i> PRE-GAME DATA INGESTION
+              </span>
+              <button onclick="openQuickPasteModal()" class="text-[10px] bg-gray-800 px-2 py-1 rounded border border-gray-700 text-emerald-400 font-bold">Paste Text</button>
+            </div>
+            
+            <p class="text-xs text-gray-400">
+              Upload opposing team <strong>PDF Stat Packets</strong>, screenshots, or roster CSV spreadsheets to auto-fill the currently managed team.
+            </p>
+            
+            <input type="file" id="roster-file-input" accept=".pdf,application/pdf,image/*,.csv,text/csv" class="hidden" onchange="handleUnifiedFileUpload(event)" />
+            <div onclick="document.getElementById('roster-file-input').click()" class="border-2 border-dashed border-emerald-600/60 hover:border-emerald-500 bg-gray-950 rounded-lg p-4 text-center cursor-pointer transition active:scale-[0.98]">
+              <span class="text-xs font-bold text-white block">Tap to Select PDF or Image Stat Packet</span>
+            </div>
+
+            <!-- Loading Spinner & Progress -->
+            <div id="file-processing-loader" class="hidden text-center space-y-2 bg-gray-950 p-3 rounded-lg border border-emerald-600/30">
+              <div class="inline-block w-5 h-5 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin"></div>
+              <p id="file-progress-text" class="text-xs font-bold text-emerald-400">Reconstructing PDF layout...</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== TAB 4: COMPLETE PITCH LOG ==================== -->
+    <div id="view-gamelog" class="hidden space-y-4">
+      <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 shadow-md">
+        <div class="flex justify-between items-center border-b border-gray-800 pb-3 mb-3">
+          <div>
+            <h2 class="text-sm font-black text-white uppercase tracking-wider">GAME PITCH-BY-PITCH LOG</h2>
+            <p class="text-xs text-gray-400">Full audit trail formatted for direct TrackMan / TruMedia synchronization.</p>
+          </div>
+          <button onclick="exportToCSV()" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-3 py-1.5 rounded-lg flex items-center space-x-1 shadow">
+            <i data-lucide="download" class="w-3.5 h-3.5"></i>
+            <span>Export TrackMan CSV</span>
+          </button>
+        </div>
+
+        <div class="overflow-x-auto max-h-96 custom-scrollbar">
+          <table class="w-full text-left text-xs font-mono">
+            <thead class="bg-gray-950 text-gray-400 border-b border-gray-800 sticky top-0">
+              <tr>
+                <th class="p-2">#</th>
+                <th class="p-2">INN</th>
+                <th class="p-2">PITCHER</th>
+                <th class="p-2">BATTER</th>
+                <th class="p-2">PITCH</th>
+                <th class="p-2">CALL</th>
+                <th class="p-2">COUNT</th>
+                <th class="p-2">ZONE</th>
+                <th class="p-2">1-1 WIN?</th>
+              </tr>
+            </thead>
+            <tbody id="gamelog-table-body" class="divide-y divide-gray-800 text-gray-200">
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- FLOATING QUICK-UNDO BANNER -->
+  <div id="quick-action-toast" class="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-gray-900 border border-gray-700 text-white px-4 py-2.5 rounded-xl shadow-2xl z-50 flex items-center space-x-3 hidden transition-all duration-300">
+    <div id="toast-icon-box" class="w-2.5 h-2.5 rounded-full bg-emerald-400"></div>
+    <span id="toast-text" class="text-xs font-bold font-mono">Pitch logged</span>
+    <button onclick="undoLastPitch()" class="bg-gray-800 hover:bg-amber-600/30 text-amber-300 border border-gray-700 text-xs font-black px-2.5 py-1 rounded-lg transition">
+      Undo
+    </button>
+  </div>
+
+  <!-- MODAL: IN PLAY OUTCOME SELECTION -->
+  <div id="modal-in-play" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <!-- (Unchanged structure) -->
+    <div class="bg-gray-900 border border-gray-800 rounded-2xl max-w-sm w-full p-4 space-y-4 shadow-2xl">
+      <div class="flex justify-between items-center border-b border-gray-800 pb-2">
+        <h3 class="text-sm font-black text-white uppercase tracking-wider">IN-PLAY BATTED BALL RESULT</h3>
+        <button onclick="closeInPlayModal()" class="text-gray-400 hover:text-white">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <div class="space-y-1">
+        <span class="text-[10px] text-gray-400 font-bold uppercase">TRAJECTORY:</span>
+        <div class="grid grid-cols-4 gap-1.5 text-xs font-bold">
+          <button onclick="selectTrajectory('GroundBall')" id="traj-GB" class="py-2 bg-gray-800 text-gray-200 rounded-lg border border-gray-700 hover:bg-emerald-600/30">GB</button>
+          <button onclick="selectTrajectory('LineDrive')" id="traj-LD" class="py-2 bg-gray-800 text-gray-200 rounded-lg border border-gray-700 hover:bg-emerald-600/30">LD</button>
+          <button onclick="selectTrajectory('FlyBall')" id="traj-FB" class="py-2 bg-gray-800 text-gray-200 rounded-lg border border-gray-700 hover:bg-emerald-600/30">FB</button>
+          <button onclick="selectTrajectory('Popup')" id="traj-PU" class="py-2 bg-gray-800 text-gray-200 rounded-lg border border-gray-700 hover:bg-emerald-600/30">POP</button>
+        </div>
+      </div>
+
+      <div class="space-y-1">
+        <span class="text-[10px] text-gray-400 font-bold uppercase">OUTCOME:</span>
+        <div class="grid grid-cols-3 gap-1.5 text-xs font-bold">
+          <button onclick="commitInPlay('Out', true)" class="py-2.5 bg-rose-950/80 hover:bg-rose-900 text-rose-200 rounded-lg border border-rose-700">OUT</button>
+          <button onclick="commitInPlay('Single', false)" class="py-2.5 bg-emerald-950/80 hover:bg-emerald-900 text-emerald-200 rounded-lg border border-emerald-700">1B (Single)</button>
+          <button onclick="commitInPlay('Double', false)" class="py-2.5 bg-emerald-950/80 hover:bg-emerald-900 text-emerald-200 rounded-lg border border-emerald-700">2B (Double)</button>
+          <button onclick="commitInPlay('Triple', false)" class="py-2.5 bg-emerald-950/80 hover:bg-emerald-900 text-emerald-200 rounded-lg border border-emerald-700">3B (Triple)</button>
+          <button onclick="commitInPlay('HomeRun', false)" class="py-2.5 bg-amber-950/80 hover:bg-amber-900 text-amber-200 rounded-lg border border-amber-700">HOME RUN</button>
+          <button onclick="commitInPlay('Error', false)" class="py-2.5 bg-gray-800 text-gray-300 rounded-lg border border-gray-700">Error (ROE)</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: PINCH HITTER / LINEUP SUBSTITUTION -->
+  <div id="modal-sub" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-gray-900 border border-gray-800 rounded-2xl max-w-sm w-full p-4 space-y-3 shadow-2xl">
+      <div class="flex justify-between items-center border-b border-gray-800 pb-2">
+        <h3 class="text-sm font-black text-white uppercase tracking-wider">PINCH HITTER / BENCH SUB</h3>
+        <button onclick="closeSubModal()" class="text-gray-400 hover:text-white">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+      <div class="space-y-2">
+        <div class="flex justify-between items-center">
+          <span class="text-xs text-gray-400">Replace: <strong id="sub-target-name" class="text-white">Player</strong></span>
+          <button onclick="closeSubModal(); openPlayerFormModal('bench')" class="text-[11px] text-emerald-400 font-bold hover:underline">+ New Bench Player</button>
+        </div>
+        <div id="bench-player-list" class="space-y-1.5 max-h-56 overflow-y-auto custom-scrollbar">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: UNIVERSAL PLAYER ADD / EDIT (REPLACES ADD BENCH) -->
+  <div id="modal-player-form" class="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-gray-900 border border-gray-800 rounded-2xl max-w-lg w-full p-5 space-y-4 shadow-2xl">
+      <div class="flex justify-between items-center border-b border-gray-800 pb-3">
+        <h3 id="form-player-title" class="text-sm font-black text-white uppercase tracking-wider">ADD/EDIT PLAYER</h3>
+        <button onclick="closePlayerFormModal()" class="text-gray-400 hover:text-white">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <input type="hidden" id="form-player-id" value="" />
+        
+        <div class="grid grid-cols-3 gap-3">
+          <div class="col-span-1">
+            <label class="block text-gray-400 mb-1 font-bold">Role:</label>
+            <select id="form-player-role" onchange="togglePlayerFormFields()" class="w-full bg-gray-950 border border-gray-700 rounded-lg p-2 text-white outline-none">
+              <option value="lineup">Lineup Hitter</option>
+              <option value="bench">Bench Hitter</option>
+              <option value="pitcher">Pitcher</option>
+            </select>
+          </div>
+          <div class="col-span-1">
+            <label class="block text-gray-400 mb-1 font-bold">Jersey #:</label>
+            <input type="text" id="form-player-num" placeholder="e.g. 5" class="w-full bg-gray-950 border border-gray-700 rounded-lg p-2 text-white outline-none" />
+          </div>
+          <div class="col-span-1">
+            <label class="block text-gray-400 mb-1 font-bold">Throws/Bats:</label>
+            <select id="form-player-hand" class="w-full bg-gray-950 border border-gray-700 rounded-lg p-2 text-white outline-none">
+              <option value="Right">Right (R)</option>
+              <option value="Left">Left (L)</option>
+              <option value="Switch">Switch (S)</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-gray-400 mb-1 font-bold">Player Last Name:</label>
+          <input type="text" id="form-player-name" placeholder="e.g. Champagne" class="w-full bg-gray-950 border border-gray-700 rounded-lg p-2 text-white outline-none" />
+        </div>
+
+        <!-- Hitting Stats (Hidden for Pitchers) -->
+        <div id="form-stats-section" class="pt-2 border-t border-gray-800">
+          <span class="block text-gray-400 mb-2 font-bold uppercase text-[10px]">Hitting Statistics (Optional)</span>
+          <div class="grid grid-cols-5 gap-2">
+            <div>
+              <label class="block text-gray-500 mb-1 text-[9px] text-center">AVG</label>
+              <input type="text" id="form-player-avg" placeholder=".000" class="w-full bg-gray-950 border border-gray-700 rounded p-1.5 text-emerald-400 text-center font-mono" />
+            </div>
+            <div>
+              <label class="block text-gray-500 mb-1 text-[9px] text-center">OBP</label>
+              <input type="text" id="form-player-obp" placeholder=".000" class="w-full bg-gray-950 border border-gray-700 rounded p-1.5 text-emerald-400 text-center font-mono" />
+            </div>
+            <div>
+              <label class="block text-gray-500 mb-1 text-[9px] text-center">SLG</label>
+              <input type="text" id="form-player-slg" placeholder=".000" class="w-full bg-gray-950 border border-gray-700 rounded p-1.5 text-emerald-400 text-center font-mono" />
+            </div>
+            <div>
+              <label class="block text-gray-500 mb-1 text-[9px] text-center">HR</label>
+              <input type="number" id="form-player-hr" placeholder="0" class="w-full bg-gray-950 border border-gray-700 rounded p-1.5 text-red-400 text-center font-mono" />
+            </div>
+            <div>
+              <label class="block text-gray-500 mb-1 text-[9px] text-center">SB</label>
+              <input type="number" id="form-player-sb" placeholder="0" class="w-full bg-gray-950 border border-gray-700 rounded p-1.5 text-cyan-400 text-center font-mono" />
+            </div>
+          </div>
+        </div>
+
+        <div class="pt-2">
+          <label class="block text-gray-400 mb-1 font-bold">Scouting Notes / Cues:</label>
+          <textarea id="form-player-notes" rows="2" placeholder="e.g. Plus runner, active on base paths..." class="w-full bg-gray-950 border border-gray-700 rounded-lg p-2 text-white outline-none"></textarea>
+        </div>
+
+        <div class="flex justify-between items-center pt-2">
+          <button id="form-btn-delete" onclick="deleteManagedPlayer()" class="text-rose-500 font-bold px-3 py-2 rounded hover:bg-rose-950/50 hidden">Delete Player</button>
+          <div class="flex space-x-2 ml-auto">
+            <button onclick="closePlayerFormModal()" class="px-4 py-2 bg-gray-800 text-white font-bold rounded-lg">Cancel</button>
+            <button onclick="commitPlayerForm()" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg shadow">Save Player</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: QUICK PASTE ROSTER / STATS TABLE -->
+  <div id="modal-quick-paste" class="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <!-- Unchanged structure internally, but parser will map to currently managed team -->
+    <div class="bg-gray-900 border border-gray-800 rounded-2xl max-w-md w-full p-4 space-y-3 shadow-2xl">
+      <div class="flex justify-between items-center border-b border-gray-800 pb-2">
+        <div>
+          <h3 class="text-sm font-black text-white uppercase tracking-wider">QUICK-PASTE STATS TABLE</h3>
+          <p class="text-[10px] text-gray-400">Copy table text directly from a website, PDF, or iOS Live Text screenshot.</p>
+        </div>
+        <button onclick="closeQuickPasteModal()" class="text-gray-400 hover:text-white">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+      <div class="space-y-2 text-xs">
+        <textarea id="quick-paste-textarea" rows="8" placeholder="Paste table text here..." class="w-full bg-gray-950 border border-gray-700 rounded-lg p-3 text-white text-xs outline-none focus:border-emerald-500 custom-scrollbar font-mono"></textarea>
+        <button onclick="commitQuickPasteText()" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg transition shadow">
+          Parse to Current Team
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: STATS / ROSTER SYNC REVIEW -->
+  <div id="modal-sync-review" class="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-gray-900 border border-gray-800 rounded-2xl max-w-xl w-full p-4 space-y-3 shadow-2xl">
+      <div class="flex justify-between items-center border-b border-gray-800 pb-2">
+        <div>
+          <h3 class="text-sm font-black text-white uppercase tracking-wider">PRE-GAME STATS & ROSTER REVIEW</h3>
+          <p class="text-[10px] text-gray-400">Review imported players. Tap tags to toggle Runner or Power.</p>
+        </div>
+        <button onclick="closeSyncReviewModal()" class="text-gray-400 hover:text-white">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+      <div id="sync-detected-list" class="space-y-2 max-h-80 overflow-y-auto custom-scrollbar text-xs"></div>
+      <div class="pt-2 border-t border-gray-800 flex space-x-2">
+        <button onclick="commitParsedPlayers()" class="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg shadow">
+          Save to Team Roster
+        </button>
+        <button onclick="closeSyncReviewModal()" class="py-2.5 px-3 bg-gray-800 text-gray-300 font-bold text-xs rounded-lg">
+          Cancel
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- JAVASCRIPT APPLICATION CODE -->
+  <script>
+    // V10: Re-architected for multi-team and roster management
+    const DEFAULT_APP_STATE = {
+      gameInfo: {
+        date: new Date().toISOString().split('T')[0],
+        pitchingTeamId: 'slu',
+        battingTeamId: 'jones',
+        inning: 1,
+        isTop: true,
+        outs: 0,
+        balls: 0,
+        strikes: 0,
+        currentPitcherIndex: 0,
+        currentBatterIndex: 0
+      },
+      teams: {
+        'slu': {
+          id: 'slu',
+          name: 'Southeastern Louisiana',
+          pitchers: [
+            { id: 1, name: "Robb, Carson", throws: "Right", notes: "Attack top/bottom of zone. Establish FB early." },
+            { id: 2, name: "Toups, Nik", throws: "Left", notes: "Heavy sinker 94-95 with 17in run." },
+            { id: 3, name: "Fabre, Larson", throws: "Left", notes: "Deceptive slot; arm-side run and sweeper." }
+          ],
+          lineup: [],
+          bench: []
+        },
+        'jones': {
+          id: 'jones',
+          name: 'Jones College Bobcats',
+          pitchers: [],
+          lineup: [
+            { id: 501, order: 1, name: "#5 Champagne", bats: "Left", stats: { avg: ".384", obp: ".470", slg: ".520", hr: 4, sb: 11 }, archetypes: ["RUNNER", "CONTACT"], tags: ["Ambush 1st Pitch FB"], notes: "Plus runner.", history: [] },
+            { id: 502, order: 2, name: "#14 Theriot", bats: "Right", stats: { avg: ".317", obp: ".420", slg: ".390", hr: 1, sb: 10 }, archetypes: ["RUNNER", "CONTACT"], tags: ["Plus Runner"], notes: "Hahnville HS.", history: [] },
+            { id: 503, order: 3, name: "#28 Russell", bats: "Left", stats: { avg: ".371", obp: ".480", slg: ".680", hr: 15, sb: 4 }, archetypes: ["POWER THREAT", "CONTACT"], tags: ["Middle of Order Power"], notes: "Huge power threat.", history: [] }
+          ],
+          bench: [
+            { id: 601, name: "#8 Smith, D.", bats: "Right", stats: { avg: ".278", obp: ".310", slg: ".340", hr: 0, sb: 0 }, archetypes: [], tags: ["Rolls over Sinker Down"], notes: "West Jones HS." }
+          ]
+        }
+      },
+      pitches: []
+    };
+
+    let state = loadPersistedState();
+    let activePitchType = '4S';
+    let activeZone = 1;
+    let activeZoneDesc = 'Up-In (Zone 1)';
+    let selectedTrajectory = 'GroundBall';
+    let toastTimeout = null;
+    let stagedParsedPlayers = [];
+    
+    // Team Manager state
+    let managingTeamId = state.gameInfo.battingTeamId || Object.keys(state.teams)[0];
+    let editingPlayerId = null;
+
+    // Helper Accessors
+    function getActivePitchers() { return state.teams[state.gameInfo.pitchingTeamId]?.pitchers || []; }
+    function getActiveLineup() { return state.teams[state.gameInfo.battingTeamId]?.lineup || []; }
+    function getActiveBench() { return state.teams[state.gameInfo.battingTeamId]?.bench || []; }
+
+    function loadPersistedState() {
+      try {
+        const saved = localStorage.getItem('SLU_DUGOUT_PITCH_APP_STATE_V10');
+        if (saved) return JSON.parse(saved);
+      } catch (e) {
+        console.warn("Storage fallback", e);
+      }
+      return JSON.parse(JSON.stringify(DEFAULT_APP_STATE));
+    }
+
+    function saveState() {
+      try {
+        localStorage.setItem('SLU_DUGOUT_PITCH_APP_STATE_V10', JSON.stringify(state));
+        flashSavedIndicator();
+      } catch (e) {
+        console.error("Save error", e);
+      }
+    }
+
+    function flashSavedIndicator() {
+      const ind = document.getElementById('storage-indicator');
+      if (ind) {
+        ind.classList.remove('text-emerald-400');
+        ind.classList.add('text-white');
+        setTimeout(() => {
+          ind.classList.remove('text-white');
+          ind.classList.add('text-emerald-400');
+        }, 300);
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      lucide.createIcons();
+      populateTeamManagerSelect();
+      populatePitcherSelect();
+      populateScoutingSelect();
+      selectZone(1, 'Up-In (Zone 1)');
+      renderAllViews();
+    });
+
+    document.addEventListener('fullscreenchange', updateFullscreenIcon);
+    document.addEventListener('webkitfullscreenchange', updateFullscreenIcon);
+
+    function toggleFullScreen() {
+      const doc = document.documentElement;
+      const isFull = document.fullscreenElement || document.webkitFullscreenElement;
+      if (!isFull) {
+        if (doc.requestFullscreen) doc.requestFullscreen();
+        else if (doc.webkitRequestFullscreen) doc.webkitRequestFullscreen();
+      } else {
+        if (document.exitFullscreen) document.exitFullscreen();
+        else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+      }
+    }
+
+    function updateFullscreenIcon() {
+      const icon = document.getElementById('fullscreen-icon');
+      if (!icon) return;
+      const isFull = document.fullscreenElement || document.webkitFullscreenElement;
+      icon.setAttribute('data-lucide', isFull ? 'minimize' : 'maximize');
+      lucide.createIcons();
+    }
+
+    // ---------------- TEAM MANAGER FUNCTIONS ---------------- //
+    function populateTeamManagerSelect() {
+      const sel = document.getElementById('team-manager-select');
+      sel.innerHTML = Object.values(state.teams).map(t => 
+        `<option value="${t.id}" ${t.id === managingTeamId ? 'selected' : ''}>${t.name}</option>`
+      ).join('');
+    }
+
+    function changeManagedTeam(teamId) {
+      managingTeamId = teamId;
+      renderLineupManager(); // Update tab 3 UI
+    }
+
+    function createNewTeamPrompt() {
+      const tname = prompt("Enter new Team/School Name:");
+      if (!tname) return;
+      const tid = tname.toLowerCase().replace(/[^a-z0-9]/g, '_') + '_' + Date.now();
+      state.teams[tid] = { id: tid, name: tname, pitchers: [], lineup: [], bench: [] };
+      managingTeamId = tid;
+      saveState();
+      populateTeamManagerSelect();
+      renderAllViews();
+      showQuickToast(`Created new team: ${tname}`);
+    }
+
+    function setAsPitchingTeam() {
+      state.gameInfo.pitchingTeamId = managingTeamId;
+      state.gameInfo.currentPitcherIndex = 0;
+      saveState();
+      populatePitcherSelect();
+      populateScoutingSelect();
+      renderAllViews();
+      showQuickToast(`Set ${state.teams[managingTeamId].name} as Pitching Staff`);
+    }
+
+    function setAsBattingTeam() {
+      state.gameInfo.battingTeamId = managingTeamId;
+      state.gameInfo.currentBatterIndex = 0;
+      saveState();
+      populateScoutingSelect();
+      renderAllViews();
+      showQuickToast(`Set ${state.teams[managingTeamId].name} as Opponent`);
+    }
+
+    function updateHeaderMatchup() {
+      const pTeam = state.teams[state.gameInfo.pitchingTeamId];
+      const bTeam = state.teams[state.gameInfo.battingTeamId];
+      document.getElementById('header-matchup').innerText = `${pTeam?.name.substring(0,20) || 'Unknown'} (Mound) vs ${bTeam?.name.substring(0,20) || 'Unknown'} (Plate)`;
+    }
+
+    // ---------------- PLAYER MODAL FORM ---------------- //
+    function openPlayerFormModal(role, playerId = null) {
+      editingPlayerId = playerId;
+      const formRole = document.getElementById('form-player-role');
+      const formName = document.getElementById('form-player-name');
+      const formNum = document.getElementById('form-player-num');
+      const formHand = document.getElementById('form-player-hand');
+      const formAvg = document.getElementById('form-player-avg');
+      const formObp = document.getElementById('form-player-obp');
+      const formSlg = document.getElementById('form-player-slg');
+      const formHr = document.getElementById('form-player-hr');
+      const formSb = document.getElementById('form-player-sb');
+      const formNotes = document.getElementById('form-player-notes');
+      
+      formRole.value = role;
+      document.getElementById('form-btn-delete').classList.toggle('hidden', !playerId);
+
+      if (playerId) {
+        document.getElementById('form-player-title').innerText = "EDIT PLAYER";
+        // Find player
+        const t = state.teams[managingTeamId];
+        let p = null;
+        if (role === 'pitcher') p = t.pitchers.find(x => x.id === playerId);
+        else if (role === 'lineup') p = t.lineup.find(x => x.id === playerId);
+        else p = t.bench.find(x => x.id === playerId);
+        
+        if (p) {
+          // Parse "#14 Name" format
+          const match = p.name.match(/^#(\d+)\s+(.*)$/);
+          if (match) {
+            formNum.value = match[1];
+            formName.value = match[2];
+          } else {
+            formNum.value = "";
+            formName.value = p.name;
+          }
+          
+          formHand.value = (role === 'pitcher') ? p.throws : p.bats;
+          formNotes.value = p.notes || "";
+          
+          if (role !== 'pitcher' && p.stats) {
+            formAvg.value = p.stats.avg || ".000";
+            formObp.value = p.stats.obp || ".000";
+            formSlg.value = p.stats.slg || ".000";
+            formHr.value = p.stats.hr || 0;
+            formSb.value = p.stats.sb || 0;
+          }
+        }
+      } else {
+        document.getElementById('form-player-title').innerText = "ADD NEW PLAYER";
+        formName.value = ""; formNum.value = ""; formNotes.value = "";
+        formAvg.value = ""; formObp.value = ""; formSlg.value = "";
+        formHr.value = ""; formSb.value = "";
+      }
+      
+      togglePlayerFormFields();
+      document.getElementById('modal-player-form').classList.remove('hidden');
+    }
+
+    function togglePlayerFormFields() {
+      const role = document.getElementById('form-player-role').value;
+      const statsSection = document.getElementById('form-stats-section');
+      statsSection.classList.toggle('hidden', role === 'pitcher');
+    }
+
+    function closePlayerFormModal() {
+      document.getElementById('modal-player-form').classList.add('hidden');
+    }
+
+    function commitPlayerForm() {
+      const role = document.getElementById('form-player-role').value;
+      const num = document.getElementById('form-player-num').value.trim();
+      const rawName = document.getElementById('form-player-name').value.trim();
+      const hand = document.getElementById('form-player-hand').value;
+      const notes = document.getElementById('form-player-notes').value.trim();
+      
+      if (!rawName) { alert("Please enter a player name."); return; }
+      const displayName = num ? `#${num} ${rawName}` : rawName;
+      const team = state.teams[managingTeamId];
+      
+      let pObj = {
+        id: editingPlayerId || Date.now() + Math.floor(Math.random() * 1000),
+        name: displayName,
+        notes: notes
+      };
+      
+      if (role === 'pitcher') {
+        pObj.throws = hand;
+        if (editingPlayerId) {
+          const idx = team.pitchers.findIndex(x => x.id === editingPlayerId);
+          if (idx !== -1) team.pitchers[idx] = { ...team.pitchers[idx], ...pObj };
+        } else {
+          team.pitchers.push(pObj);
+        }
+      } else {
+        pObj.bats = hand;
+        pObj.stats = {
+          avg: document.getElementById('form-player-avg').value || ".000",
+          obp: document.getElementById('form-player-obp').value || ".000",
+          slg: document.getElementById('form-player-slg').value || ".000",
+          hr: parseInt(document.getElementById('form-player-hr').value) || 0,
+          sb: parseInt(document.getElementById('form-player-sb').value) || 0
+        };
+        pObj.archetypes = determineArchetypes(parseFloat(pObj.stats.avg) || 0, 0.400, pObj.stats.hr, pObj.stats.sb);
+        pObj.tags = ["Manual Entry"];
+        
+        let targetList = role === 'lineup' ? team.lineup : team.bench;
+        if (editingPlayerId) {
+          // Find which list it currently exists in and remove it to handle Role swaps
+          const oldLineupIdx = team.lineup.findIndex(x => x.id === editingPlayerId);
+          const oldBenchIdx = team.bench.findIndex(x => x.id === editingPlayerId);
+          
+          if (oldLineupIdx !== -1) {
+            pObj = { ...team.lineup[oldLineupIdx], ...pObj };
+            if (role === 'bench') team.lineup.splice(oldLineupIdx, 1);
+          } else if (oldBenchIdx !== -1) {
+            pObj = { ...team.bench[oldBenchIdx], ...pObj };
+            if (role === 'lineup') team.bench.splice(oldBenchIdx, 1);
+          }
+          
+          // Re-insert into correct list
+          if (role === 'lineup' && oldLineupIdx === -1) { pObj.order = team.lineup.length + 1; targetList.push(pObj); }
+          else if (role === 'bench' && oldBenchIdx === -1) { targetList.push(pObj); }
+          else if (role === 'lineup') { team.lineup[oldLineupIdx] = pObj; }
+          else if (role === 'bench') { team.bench[oldBenchIdx] = pObj; }
+          
+        } else {
+          pObj.history = [];
+          if (role === 'lineup') pObj.order = team.lineup.length + 1;
+          targetList.push(pObj);
+        }
+      }
+
+      saveState();
+      closePlayerFormModal();
+      populatePitcherSelect();
+      populateScoutingSelect();
+      renderAllViews();
+      showQuickToast(`Saved player: ${displayName}`);
+    }
+
+    function deleteManagedPlayer() {
+      if (!confirm("Are you sure you want to delete this player?")) return;
+      const team = state.teams[managingTeamId];
+      team.pitchers = team.pitchers.filter(x => x.id !== editingPlayerId);
+      team.lineup = team.lineup.filter(x => x.id !== editingPlayerId);
+      team.bench = team.bench.filter(x => x.id !== editingPlayerId);
+      saveState();
+      closePlayerFormModal();
+      populatePitcherSelect();
+      populateScoutingSelect();
+      renderAllViews();
+      showQuickToast("Player deleted.");
+    }
+
+    // ---------------- MAIN LOGIC INTEGRATION ---------------- //
+    function populatePitcherSelect() {
+      const sel = document.getElementById('pitcher-select');
+      const pitchers = getActivePitchers();
+      if (pitchers.length === 0) {
+        sel.innerHTML = `<option value="0">No Pitchers Loaded</option>`;
+        return;
+      }
+      sel.innerHTML = pitchers.map((p, idx) => 
+        `<option value="${idx}" ${idx === state.gameInfo.currentPitcherIndex ? 'selected' : ''}>${p.name} (${p.throws[0]}HP)</option>`
+      ).join('');
+    }
+
+    function populateScoutingSelect() {
+      const sel = document.getElementById('scouting-player-select');
+      const lineup = getActiveLineup();
+      const bench = getActiveBench();
+      const pitchers = getActivePitchers();
+      
+      sel.innerHTML = `
+        <optgroup label="Active Lineup">
+          ${lineup.map(b => `<option value="batter-${b.id}">#${b.order} ${b.name} (${b.bats})</option>`).join('')}
+        </optgroup>
+        <optgroup label="Active Bench">
+          ${bench.map(b => `<option value="batter-${b.id}">${b.name} (${b.bats})</option>`).join('')}
+        </optgroup>
+        <optgroup label="Active Pitching Staff">
+          ${pitchers.map(p => `<option value="pitcher-${p.id}">${p.name} (${p.throws})</option>`).join('')}
+        </optgroup>
+      `;
+    }
+
+    function switchPitcher(idx) {
+      state.gameInfo.currentPitcherIndex = parseInt(idx);
+      saveState();
+      renderAllViews();
+    }
+
+    function selectPitchType(pt) {
+      activePitchType = pt;
+      ['4S', 'SI', 'CT', 'SL', 'CB', 'CH', 'SPL'].forEach(t => {
+        const btn = document.getElementById(`pt-${t}`);
+        if (!btn) return;
+        btn.className = (t === pt) 
+          ? "py-2.5 rounded-lg bg-emerald-600 text-white font-black text-xs border border-emerald-400 shadow active:scale-95 transition"
+          : "py-2.5 rounded-lg bg-gray-800 text-gray-200 hover:bg-gray-700 font-black text-xs border border-gray-700 active:scale-95 transition";
+      });
+    }
+
+    function selectZone(zoneNum, customDesc) {
+      activeZone = zoneNum;
+      activeZoneDesc = customDesc || `Zone ${zoneNum}`;
+      document.getElementById('selected-loc-label').innerText = `Location: ${activeZoneDesc}`;
+
+      for (let z = 1; z <= 8; z++) {
+        const btn = document.getElementById(`zone-btn-${z}`);
+        if (!btn) continue;
+
+        if (z <= 4) {
+          const title = document.getElementById(`zone-label-${z}`);
+          const sub = document.getElementById(`zone-sub-${z}`);
+          if (z === zoneNum) {
+            btn.className = "bg-emerald-600 border-2 border-emerald-300 rounded-xl flex flex-col items-center justify-center active:scale-95 transition shadow-lg p-1.5";
+            if (title) title.className = "text-xs sm:text-sm font-bold tracking-tight text-white leading-tight";
+            if (sub) sub.className = "text-[10px] font-mono text-emerald-100 mt-0.5";
+          } else {
+            btn.className = "bg-gray-800/90 hover:bg-emerald-600/30 border border-emerald-500/30 rounded-xl flex flex-col items-center justify-center active:scale-95 transition p-1.5";
+            if (title) title.className = "text-xs sm:text-sm font-bold tracking-tight text-emerald-400 leading-tight";
+            if (sub) sub.className = "text-[10px] font-mono text-gray-400 mt-0.5";
+          }
+        } else {
+          if (z === zoneNum) {
+            btn.classList.remove('bg-gray-900', 'text-gray-300', 'border-gray-700/80', 'border-dashed');
+            btn.classList.add('bg-amber-600/30', 'text-amber-300', 'border-amber-500', 'border-solid');
+          } else {
+            btn.classList.remove('bg-amber-600/30', 'text-amber-300', 'border-amber-500', 'border-solid');
+            btn.classList.add('bg-gray-900', 'text-gray-300', 'border-gray-700/80', 'border-dashed');
+          }
+        }
+      }
+    }
+
+    function recordPitch(call, inPlayData = null) {
+      const pitchers = getActivePitchers();
+      const lineup = getActiveLineup();
+      
+      if (pitchers.length === 0 || lineup.length === 0) {
+        alert("You must add at least 1 pitcher and 1 batter to the active teams before logging pitches.");
+        return;
+      }
+
+      const pitcher = pitchers[state.gameInfo.currentPitcherIndex];
+      const batter = lineup[state.gameInfo.currentBatterIndex];
+
+      const currentBalls = state.gameInfo.balls;
+      const currentStrikes = state.gameInfo.strikes;
+      const currentOuts = state.gameInfo.outs;
+
+      const is1_1Count = (currentBalls === 1 && currentStrikes === 1);
+      let is1_1Win = null;
+
+      if (is1_1Count) {
+        if (['StrikeCalled', 'StrikeSwinging', 'FoulBall'].includes(call)) is1_1Win = true;
+        else if (call === 'InPlay' && inPlayData && inPlayData.isOut) is1_1Win = true;
+        else if (call === 'BallCalled' || call === 'HitByPitch' || (call === 'InPlay' && inPlayData && !inPlayData.isOut)) is1_1Win = false;
+      }
+
+      const tmTypeMap = { '4S': 'Fastball', 'SI': 'Sinker', 'CT': 'Cutter', 'SL': 'Slider', 'CB': 'Curveball', 'CH': 'ChangeUp', 'SPL': 'Splitter' };
+
+      const pitchRecord = {
+        pitchNo: state.pitches.length + 1,
+        inning: state.gameInfo.inning,
+        isTop: state.gameInfo.isTop,
+        outsBefore: currentOuts,
+        ballsBefore: currentBalls,
+        strikesBefore: currentStrikes,
+        pitcherId: pitcher.id,
+        pitcherName: pitcher.name,
+        pitcherThrows: pitcher.throws,
+        batterId: batter.id,
+        batterName: batter.name,
+        batterSide: batter.bats,
+        pitchType: activePitchType,
+        taggedPitchType: tmTypeMap[activePitchType] || 'Fastball',
+        pitchCall: call,
+        zone: activeZone,
+        zoneDesc: activeZoneDesc,
+        is1_1Count: is1_1Count,
+        is1_1Win: is1_1Win,
+        hitType: inPlayData ? inPlayData.trajectory : 'Undefined',
+        playResult: inPlayData ? inPlayData.outcome : 'Undefined',
+        timestamp: new Date().toLocaleTimeString()
+      };
+
+      state.pitches.push(pitchRecord);
+
+      let nextBalls = currentBalls, nextStrikes = currentStrikes, nextOuts = currentOuts;
+      let paEnded = false, paSummary = "";
+
+      if (call === 'BallCalled') {
+        nextBalls++;
+        if (nextBalls >= 4) { paEnded = true; paSummary = "Walk (BB)"; }
+      } else if (call === 'StrikeCalled' || call === 'StrikeSwinging') {
+        nextStrikes++;
+        if (nextStrikes >= 3) {
+          paEnded = true; nextOuts++; 
+          paSummary = call === 'StrikeCalled' ? "Strikeout (Looking)" : "Strikeout (Swinging)";
+        }
+      } else if (call === 'FoulBall') {
+        if (nextStrikes < 2) nextStrikes++;
+      } else if (call === 'HitByPitch') {
+        paEnded = true; paSummary = "Hit By Pitch (HBP)";
+      } else if (call === 'InPlay') {
+        paEnded = true;
+        if (inPlayData.isOut) { nextOuts++; paSummary = `${inPlayData.trajectory} Out`; } 
+        else { paSummary = `${inPlayData.trajectory} (${inPlayData.outcome})`; }
+      }
+
+      showQuickToast(`Pitch ${pitchRecord.pitchNo}: ${activePitchType} - ${formatCallName(call)} (${nextBalls}-${nextStrikes})`);
+
+      if (nextOuts >= 3) {
+        state.gameInfo.outs = 0; state.gameInfo.balls = 0; state.gameInfo.strikes = 0;
+        state.gameInfo.isTop = !state.gameInfo.isTop;
+        if (state.gameInfo.isTop) state.gameInfo.inning++;
+        
+        if (paEnded) {
+          if (!batter.history) batter.history = [];
+          batter.history.push({ inning: pitchRecord.inning, result: paSummary });
+          advanceToNextBatter();
+        }
+        showQuickToast(`3 OUTS! Advanced to ${state.gameInfo.isTop ? 'Top' : 'Bot'} ${formatInningOrdinal(state.gameInfo.inning)}`, true);
+      } else {
+        state.gameInfo.outs = nextOuts;
+        if (paEnded) {
+          state.gameInfo.balls = 0; state.gameInfo.strikes = 0;
+          if (!batter.history) batter.history = [];
+          batter.history.push({ inning: pitchRecord.inning, result: paSummary });
+          advanceToNextBatter();
+        } else {
+          state.gameInfo.balls = nextBalls; state.gameInfo.strikes = nextStrikes;
+        }
+      }
+
+      saveState();
+      renderAllViews();
+    }
+
+    function advanceToNextBatter() {
+      const lineup = getActiveLineup();
+      if (lineup.length > 0) {
+        state.gameInfo.currentBatterIndex = (state.gameInfo.currentBatterIndex + 1) % lineup.length;
+      }
+    }
+
+    function openInPlayModal() { document.getElementById('modal-in-play').classList.remove('hidden'); }
+    function closeInPlayModal() { document.getElementById('modal-in-play').classList.add('hidden'); }
+    function selectTrajectory(traj) {
+      selectedTrajectory = traj;
+      ['GB', 'LD', 'FB', 'PU'].forEach(k => {
+        const btn = document.getElementById(`traj-${k}`);
+        if (btn) btn.className = "py-2 bg-gray-800 text-gray-200 rounded-lg border border-gray-700 hover:bg-emerald-600/30";
+      });
+      const activeMap = { 'GroundBall': 'GB', 'LineDrive': 'LD', 'FlyBall': 'FB', 'Popup': 'PU' };
+      const btn = document.getElementById(`traj-${activeMap[traj]}`);
+      if (btn) btn.className = "py-2 bg-emerald-600 text-white rounded-lg border border-emerald-400 font-black";
+    }
+    function commitInPlay(outcome, isOut) {
+      closeInPlayModal();
+      recordPitch('InPlay', { trajectory: selectedTrajectory, outcome: outcome, isOut: isOut });
+    }
+
+    function rollInning() {
+      state.gameInfo.outs = 0; state.gameInfo.balls = 0; state.gameInfo.strikes = 0;
+      state.gameInfo.isTop = !state.gameInfo.isTop;
+      if (state.gameInfo.isTop) state.gameInfo.inning++;
+      advanceToNextBatter();
+      saveState();
+      renderAllViews();
+      showQuickToast(`Rolled Inning -> Now in ${state.gameInfo.isTop ? 'Top' : 'Bot'} ${formatInningOrdinal(state.gameInfo.inning)}`);
+    }
+
+    function clearBases() {
+      state.gameInfo.balls = 0; state.gameInfo.strikes = 0;
+      saveState(); renderAllViews();
+      showQuickToast(`Count reset to 0-0`);
+    }
+
+    function addExtraHitterPrompt() { openPlayerFormModal('lineup'); }
+
+    // FILE UPLOAD AND INGESTION
+    async function handleUnifiedFileUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const loader = document.getElementById('file-processing-loader');
+      const progressText = document.getElementById('file-progress-text');
+      loader.classList.remove('hidden');
+
+      if (file.name.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf') {
+        progressText.innerText = `Reconstructing PDF table layout from coordinates...`;
+        try {
+          const arrayBuffer = await file.arrayBuffer();
+          const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+          let tableLines = [];
+          for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+            progressText.innerText = `Reading page ${pageNum} coordinates (${pageNum}/${pdf.numPages})...`;
+            const page = await pdf.getPage(pageNum);
+            const textContent = await page.getTextContent();
+            
+            const rowMap = new Map();
+            textContent.items.forEach(item => {
+              const y = Math.round(item.transform[5] / 4) * 4;
+              if (!rowMap.has(y)) rowMap.set(y, []);
+              rowMap.get(y).push({ x: item.transform[4], text: item.str });
+            });
+
+            const sortedYs = Array.from(rowMap.keys()).sort((a, b) => b - a);
+            sortedYs.forEach(y => {
+              const rowItems = rowMap.get(y).sort((a, b) => a.x - b.x);
+              const rowLine = rowItems.map(i => i.text.trim()).filter(t => t.length > 0).join(' ');
+              if (rowLine.length > 3) tableLines.push(rowLine);
+            });
+          }
+          loader.classList.add('hidden');
+          parseReconstructedLines(tableLines);
+        } catch (err) {
+          loader.classList.add('hidden'); alert("Error parsing PDF.");
+        }
+      } else if (file.type.startsWith('image/')) {
+        progressText.innerText = "Analyzing screenshot...";
+        try {
+          const { data: { text } } = await Tesseract.recognize(file, 'eng', { logger: m => { if (m.status === 'recognizing text') progressText.innerText = `OCR: ${Math.round(m.progress * 100)}%`; }});
+          loader.classList.add('hidden');
+          parseReconstructedLines(text.split('\n'));
+        } catch (err) { loader.classList.add('hidden'); alert("OCR read error."); }
+      } else if (file.name.endsWith('.csv') || file.type.includes('csv')) {
+        const reader = new FileReader();
+        reader.onload = function(e) { loader.classList.add('hidden'); parseRosterCSV(e.target.result); };
+        reader.readAsText(file);
+      }
+      
+      // Reset input so you can select the same file again if needed
+      event.target.value = null;
+    }
+
+    function parseReconstructedLines(lines) {
+      stagedParsedPlayers = [];
+      let orderIndex = 1;
+
+      lines.forEach(rawLine => {
+        let line = rawLine.trim();
+        if (line.length < 5 || line.toLowerCase().includes("overall statistics") || line.toLowerCase().includes("team leaders")) return;
+
+        const avgMatch = line.match(/(?:\s|^)(\.\d{3}|\d\.\d{3})(?:\s|$)/);
+        if (avgMatch) {
+          const tokens = line.split(/\s+/);
+          let nameTokens = [], avg = avgMatch[1], hr = 0, sb = 0, bats = "Right";
+
+          tokens.forEach((t, idx) => {
+            if (/^[A-Za-z]+,?[A-Za-z]*$/.test(t) && !['AVG', 'GP', 'AB', 'R', 'H', 'HR', 'RBI', 'SLG', 'OBP', 'SO', 'BB'].includes(t.toUpperCase())) {
+              nameTokens.push(t);
+            } else if (/^\d+-\d+$/.test(t)) {
+              const val = parseInt(t.split('-')[0]);
+              if (val >= 0 && val <= 50) sb = val;
+            } else if (!isNaN(t) && idx > 4) {
+              const val = parseInt(t);
+              if (val > 0 && val <= 40 && hr === 0) hr = val;
+            }
+          });
+
+          let fullName = nameTokens.join(' ').replace(/[^a-zA-Z,\s#]/g, '').trim();
+          if (fullName.length >= 3) {
+            stagedParsedPlayers.push({
+              name: fullName, bats: bats,
+              stats: { avg: avg, obp: ".350", slg: hr > 4 ? ".550" : ".380", hr: hr, sb: sb },
+              archetypes: determineArchetypes(parseFloat(avg) || 0.250, 0.400, hr, sb),
+              order: orderIndex <= 9 ? orderIndex : null,
+              isBench: orderIndex > 9
+            });
+            orderIndex++;
+          }
+        }
+      });
+
+      if (stagedParsedPlayers.length > 0) openSyncReviewModal();
+    }
+
+    function openQuickPasteModal() {
+      document.getElementById('quick-paste-textarea').value = '';
+      document.getElementById('modal-quick-paste').classList.remove('hidden');
+    }
+    function closeQuickPasteModal() { document.getElementById('modal-quick-paste').classList.add('hidden'); }
+    function commitQuickPasteText() {
+      const text = document.getElementById('quick-paste-textarea').value;
+      if (!text.trim()) return;
+      closeQuickPasteModal();
+      parseReconstructedLines(text.split('\n'));
+    }
+
+    function determineArchetypes(avg, slg, hr, sb) {
+      const list = [];
+      if (sb >= 5) list.push("RUNNER");
+      if (slg >= 0.500 || hr >= 4) list.push("POWER THREAT");
+      if (avg >= 0.310) list.push("CONTACT");
+      if (avg < 0.225 && hr >= 2) list.push("HIGH K RISK");
+      return list;
+    }
+
+    function togglePlayerArchetype(playerIdx, type) {
+      const p = stagedParsedPlayers[playerIdx];
+      if (!p) return;
+      const idx = p.archetypes.indexOf(type);
+      if (idx === -1) p.archetypes.push(type); else p.archetypes.splice(idx, 1);
+      openSyncReviewModal();
+    }
+
+    function openSyncReviewModal() {
+      const container = document.getElementById('sync-detected-list');
+      container.innerHTML = stagedParsedPlayers.map((p, idx) => `
+        <div class="p-2.5 rounded-lg bg-gray-950 border border-gray-800 space-y-2">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-2 flex-1">
+              <span class="text-[10px] font-mono text-gray-400 font-bold w-12">${p.isBench ? 'BENCH' : `#${p.order}`}</span>
+              <input type="text" value="${p.name}" onchange="stagedParsedPlayers[${idx}].name = this.value" class="bg-gray-900 border border-gray-700 rounded px-2 py-1 text-white text-xs font-bold flex-1 outline-none focus:border-emerald-500" />
+            </div>
+            <select onchange="stagedParsedPlayers[${idx}].bats = this.value" class="bg-gray-900 border border-gray-700 rounded px-2 py-1 text-gray-300 text-xs ml-2 outline-none">
+              <option value="Right" ${p.bats === 'Right' ? 'selected' : ''}>RHH</option>
+              <option value="Left" ${p.bats === 'Left' ? 'selected' : ''}>LHH</option>
+              <option value="Switch" ${p.bats === 'Switch' ? 'selected' : ''}>SHH</option>
+            </select>
+          </div>
+          <div class="flex flex-wrap items-center justify-between text-[11px] text-gray-400 pl-14 gap-1">
+            <div class="flex items-center space-x-1.5 font-mono">
+              <span>AVG:</span> <input type="text" value="${p.stats.avg}" onchange="stagedParsedPlayers[${idx}].stats.avg = this.value" class="w-12 bg-gray-900 border border-gray-700 rounded px-1 text-emerald-400 text-center" />
+              <span>HR:</span> <input type="number" value="${p.stats.hr}" onchange="stagedParsedPlayers[${idx}].stats.hr = parseInt(this.value)||0" class="w-10 bg-gray-900 border border-gray-700 rounded px-1 text-red-400 text-center" />
+              <span>SB:</span> <input type="number" value="${p.stats.sb}" onchange="stagedParsedPlayers[${idx}].stats.sb = parseInt(this.value)||0" class="w-10 bg-gray-900 border border-gray-700 rounded px-1 text-cyan-400 text-center" />
+            </div>
+            <div class="flex space-x-1">
+              <button onclick="togglePlayerArchetype(${idx}, 'RUNNER')" class="text-[9px] font-black px-1.5 py-0.5 rounded border transition ${p.archetypes.includes('RUNNER') ? 'bg-cyan-950 text-cyan-300 border-cyan-600' : 'bg-gray-900 text-gray-500 border-gray-800'}">🏃</button>
+              <button onclick="togglePlayerArchetype(${idx}, 'POWER THREAT')" class="text-[9px] font-black px-1.5 py-0.5 rounded border transition ${p.archetypes.includes('POWER THREAT') ? 'bg-red-950 text-red-300 border-red-600' : 'bg-gray-900 text-gray-500 border-gray-800'}">💣</button>
+              <button onclick="togglePlayerArchetype(${idx}, 'CONTACT')" class="text-[9px] font-black px-1.5 py-0.5 rounded border transition ${p.archetypes.includes('CONTACT') ? 'bg-emerald-950 text-emerald-300 border-emerald-600' : 'bg-gray-900 text-gray-500 border-gray-800'}">🎯</button>
+            </div>
+          </div>
+        </div>
+      `).join('');
+      document.getElementById('modal-sync-review').classList.remove('hidden');
+    }
+
+    function closeSyncReviewModal() { document.getElementById('modal-sync-review').classList.add('hidden'); }
+
+    function commitParsedPlayers() {
+      const team = state.teams[managingTeamId];
+      
+      stagedParsedPlayers.forEach((p, idx) => {
+        const playerObj = {
+          id: Date.now() + idx,
+          name: p.name, bats: p.bats, stats: p.stats, archetypes: p.archetypes,
+          tags: ["Auto Ingest"], notes: `Imported Stats: ${p.stats.avg} AVG, ${p.stats.hr} HR`, history: []
+        };
+        if (!p.isBench && team.lineup.length < 9) {
+          playerObj.order = team.lineup.length + 1;
+          team.lineup.push(playerObj);
+        } else {
+          team.bench.push(playerObj);
+        }
+      });
+
+      saveState();
+      closeSyncReviewModal();
+      renderAllViews();
+      showQuickToast(`Imported ${stagedParsedPlayers.length} players to ${team.name}`);
+    }
+
+    function parseRosterCSV(csvText) {
+      const lines = csvText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+      if (lines.length <= 1) return;
+
+      const team = state.teams[managingTeamId];
+      let imported = 0;
+      for (let i = 1; i < lines.length; i++) {
+        const parts = lines[i].split(',').map(p => p.replace(/"/g, '').trim());
+        if (parts.length >= 1 && parts[0]) {
+          const avg = parts[2] || ".250", hr = parseInt(parts[3]) || 0, sb = parseInt(parts[4]) || 0;
+          const playerObj = {
+            id: Date.now() + i,
+            name: parts[0], bats: parts[1] || 'Right',
+            stats: { avg: avg, obp: ".340", slg: ".400", hr: hr, sb: sb },
+            archetypes: determineArchetypes(parseFloat(avg) || 0.250, 0.400, hr, sb),
+            tags: [], notes: "Imported via CSV.", history: []
+          };
+          if (team.lineup.length < 9) { playerObj.order = team.lineup.length + 1; team.lineup.push(playerObj); } 
+          else { team.bench.push(playerObj); }
+          imported++;
+        }
+      }
+      if (imported > 0) { saveState(); renderAllViews(); showQuickToast(`Loaded ${imported} players from CSV`); }
+    }
+
+    function renderArchetypeBadges(archetypes) {
+      if (!archetypes || archetypes.length === 0) return '';
+      return archetypes.map(a => {
+        if (a === 'RUNNER') return `<span class="bg-cyan-950 text-cyan-300 border border-cyan-700 text-[9px] font-black px-1.5 py-0.5 rounded flex items-center">🏃 RUNNER</span>`;
+        if (a === 'POWER THREAT') return `<span class="bg-red-950 text-red-300 border border-red-700 text-[9px] font-black px-1.5 py-0.5 rounded flex items-center">💣 POWER</span>`;
+        if (a === 'CONTACT') return `<span class="bg-emerald-950 text-emerald-300 border border-emerald-700 text-[9px] font-black px-1.5 py-0.5 rounded flex items-center">🎯 CONTACT</span>`;
+        if (a === 'HIGH K RISK') return `<span class="bg-purple-950 text-purple-300 border border-purple-700 text-[9px] font-black px-1.5 py-0.5 rounded flex items-center">⚡ HIGH K</span>`;
+        return '';
+      }).join('');
+    }
+
+    let currentSubTargetId = null;
+    function openSubModal() {
+      const lineup = getActiveLineup();
+      if(lineup.length > 0) openSubModalFor(lineup[state.gameInfo.currentBatterIndex].id);
+    }
+    
+    function openSubModalFor(batterId) {
+      currentSubTargetId = batterId;
+      const lineup = getActiveLineup();
+      const bench = getActiveBench();
+      const target = lineup.find(b => b.id === batterId);
+      document.getElementById('sub-target-name').innerText = target ? target.name : "Player";
+
+      const list = document.getElementById('bench-player-list');
+      if (bench.length === 0) {
+        list.innerHTML = `
+          <div class="text-center py-4 bg-gray-950 rounded-lg border border-gray-800">
+            <p class="text-xs text-gray-400 mb-2">No bench players available right now.</p>
+            <button onclick="closeSubModal(); switchTab('roster')" class="text-xs font-bold text-emerald-400 underline">Manage Team Roster</button>
+          </div>
+        `;
+      } else {
+        list.innerHTML = bench.map(bp => `
+          <div class="p-2 rounded bg-gray-950 hover:bg-gray-800 border border-gray-800 flex justify-between items-center text-xs">
+            <div>
+              <div class="flex items-center space-x-1.5">
+                <span class="font-bold text-white">${bp.name}</span>
+                <span class="text-[9px] text-gray-400 font-mono">(${bp.bats[0]}HH)</span>
+              </div>
+              <div class="flex space-x-1 mt-0.5">${renderArchetypeBadges(bp.archetypes)}</div>
+            </div>
+            <button onclick="commitSub(${bp.id})" class="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded shadow active:scale-95">Sub In</button>
+          </div>
+        `).join('');
+      }
+      document.getElementById('modal-sub').classList.remove('hidden');
+    }
+    
+    function closeSubModal() { document.getElementById('modal-sub').classList.add('hidden'); }
+    
+    function commitSub(benchId) {
+      const lineup = getActiveLineup();
+      const bench = getActiveBench();
+      const benchIdx = bench.findIndex(b => b.id === benchId);
+      const lineupIdx = lineup.findIndex(b => b.id === currentSubTargetId);
+      if (benchIdx !== -1 && lineupIdx !== -1) {
+        const oldHitter = lineup[lineupIdx];
+        const newHitter = bench[benchIdx];
+        newHitter.order = oldHitter.order;
+        newHitter.history = oldHitter.history || [];
+        lineup[lineupIdx] = newHitter;
+        bench.splice(benchIdx, 1);
+        bench.push(oldHitter);
+        saveState(); closeSubModal(); renderAllViews();
+        showQuickToast(`Subbed: ${newHitter.name} for ${oldHitter.name}`);
+      }
+    }
+
+    function undoLastPitch() {
+      if (state.pitches.length === 0) return;
+      const last = state.pitches.pop();
+      state.gameInfo.inning = last.inning;
+      state.gameInfo.isTop = last.isTop;
+      state.gameInfo.outs = last.outsBefore;
+      state.gameInfo.balls = last.ballsBefore;
+      state.gameInfo.strikes = last.strikesBefore;
+
+      const lineup = getActiveLineup();
+      const bIdx = lineup.findIndex(b => b.id === last.batterId);
+      if (bIdx !== -1) state.gameInfo.currentBatterIndex = bIdx;
+
+      saveState(); renderAllViews();
+      showQuickToast(`Reverted pitch #${last.pitchNo}`);
+    }
+
+    function showQuickToast(msg, isAlert = false) {
+      const toast = document.getElementById('quick-action-toast');
+      const text = document.getElementById('toast-text');
+      const dot = document.getElementById('toast-icon-box');
+      if (!toast || !text) return;
+
+      text.innerText = msg;
+      dot.className = isAlert ? "w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping" : "w-2.5 h-2.5 rounded-full bg-emerald-400";
+      toast.classList.remove('hidden');
+
+      if (toastTimeout) clearTimeout(toastTimeout);
+      toastTimeout = setTimeout(() => { toast.classList.add('hidden'); }, 4500);
+    }
+
+    function renderAllViews() {
+      updateHeaderMatchup();
+      renderHUD();
+      renderCurrentBatter();
+      renderCurrentSequence();
+      renderArsenalTally();
+      renderLineupManager(); // Tab 3
+      renderGameLog();
+    }
+
+    function renderHUD() {
+      const g = state.gameInfo;
+      const pitchers = getActivePitchers();
+      const pitcher = pitchers.length > 0 ? pitchers[g.currentPitcherIndex] : null;
+
+      document.getElementById('inning-text').innerText = formatInningOrdinal(g.inning);
+      document.getElementById('inning-side-icon').innerText = g.isTop ? '▲ TOP' : '▼ BOT';
+      document.getElementById('count-display').innerText = `${g.balls} - ${g.strikes}`;
+
+      document.getElementById('out-dot-1').className = g.outs >= 1 ? "w-2.5 h-2.5 rounded-full bg-amber-400 shadow-sm" : "w-2.5 h-2.5 rounded-full bg-gray-700 border border-gray-600";
+      document.getElementById('out-dot-2').className = g.outs >= 2 ? "w-2.5 h-2.5 rounded-full bg-amber-400 shadow-sm" : "w-2.5 h-2.5 rounded-full bg-gray-700 border border-gray-600";
+
+      if (!pitcher) return;
+
+      const pitcherPitches = state.pitches.filter(p => p.pitcherId === pitcher.id);
+      const innPitches = pitcherPitches.filter(p => p.inning === g.inning && p.isTop === g.isTop);
+
+      document.getElementById('hud-total-pitches').innerText = pitcherPitches.length;
+      document.getElementById('hud-inn-pitches').innerText = innPitches.length;
+
+      const strikes = pitcherPitches.filter(p => ['StrikeCalled', 'StrikeSwinging', 'FoulBall', 'InPlay'].includes(p.pitchCall)).length;
+      const balls = pitcherPitches.filter(p => ['BallCalled', 'HitByPitch'].includes(p.pitchCall)).length;
+      const strPct = pitcherPitches.length > 0 ? ((strikes / pitcherPitches.length) * 100).toFixed(1) : "0.0";
+      document.getElementById('hud-strike-pct').innerText = `${strPct}%`;
+      document.getElementById('hud-strikes').innerText = strikes;
+      document.getElementById('hud-balls').innerText = balls;
+
+      const oneOnePitches = pitcherPitches.filter(p => p.is1_1Count);
+      const oneOneWins = oneOnePitches.filter(p => p.is1_1Win === true).length;
+      const oneOneWinPct = oneOnePitches.length > 0 ? ((oneOneWins / oneOnePitches.length) * 100).toFixed(1) : "0.0";
+      document.getElementById('hud-1-1-win-pct').innerText = `${oneOneWinPct}%`;
+      document.getElementById('hud-1-1-wins').innerText = oneOneWins;
+      document.getElementById('hud-1-1-total').innerText = oneOnePitches.length;
+
+      const card1_1 = document.getElementById('stat-1-1-card');
+      card1_1.className = (g.balls === 1 && g.strikes === 1) ? "bg-amber-950/90 border border-amber-500 rounded-lg p-1.5 leverage-pulse" : "bg-gray-950/70 border border-gray-800 rounded-lg p-1.5";
+
+      const firstPitches = pitcherPitches.filter(p => p.ballsBefore === 0 && p.strikesBefore === 0);
+      const fpsStrikes = firstPitches.filter(p => ['StrikeCalled', 'StrikeSwinging', 'FoulBall', 'InPlay'].includes(p.pitchCall)).length;
+      document.getElementById('hud-fps-pct').innerText = firstPitches.length > 0 ? `${((fpsStrikes / firstPitches.length) * 100).toFixed(1)}%` : "0.0%";
+
+      const swings = pitcherPitches.filter(p => ['StrikeSwinging', 'FoulBall', 'InPlay'].includes(p.pitchCall)).length;
+      const whiffs = pitcherPitches.filter(p => p.pitchCall === 'StrikeSwinging').length;
+      document.getElementById('hud-whiff-pct').innerText = swings > 0 ? `${((whiffs / swings) * 100).toFixed(0)}%` : "0.0%";
+      document.getElementById('hud-whiff-count').innerText = whiffs;
+      document.getElementById('hud-swing-count').innerText = swings;
+      document.getElementById('tab-pitch-count').innerText = state.pitches.length;
+    }
+
+    function renderCurrentBatter() {
+      const lineup = getActiveLineup();
+      if (lineup.length === 0) return;
+      const b = lineup[state.gameInfo.currentBatterIndex];
+      
+      document.getElementById('batter-order-num').innerText = `#${b.order}`;
+      document.getElementById('batter-name').innerText = b.name;
+      document.getElementById('batter-side-badge').innerText = `${b.bats[0]}HH`;
+
+      const statContainer = document.getElementById('batter-statline');
+      statContainer.innerText = b.stats ? `${b.stats.avg} / ${b.stats.obp || '.---'} / ${b.stats.slg || '.---'} • ${b.stats.hr || 0} HR • ${b.stats.sb || 0} SB` : "No stats registered";
+      document.getElementById('batter-archetype-badges').innerHTML = renderArchetypeBadges(b.archetypes);
+
+      const lastAb = b.history && b.history.length > 0 ? b.history[b.history.length - 1] : null;
+      document.getElementById('batter-last-ab').innerText = lastAb ? `Inn ${lastAb.inning}: ${lastAb.result}` : "No prior plate appearances today";
+
+      const tagsContainer = document.getElementById('batter-scouting-tags');
+      tagsContainer.innerHTML = (b.tags || []).map(t => `<span class="text-[10px] bg-gray-800 text-gray-300 px-2 py-0.5 rounded border border-gray-700">${t}</span>`).join('');
+      document.getElementById('batter-scouting-notes').innerText = b.notes || "No scouting notes entered for this batter.";
+    }
+
+    function renderCurrentSequence() {
+      const lineup = getActiveLineup();
+      if (lineup.length === 0) return;
+      const b = lineup[state.gameInfo.currentBatterIndex];
+      const currentAbPitches = state.pitches.filter(pt => pt.batterId === b.id && pt.inning === state.gameInfo.inning && pt.isTop === state.gameInfo.isTop);
+
+      document.getElementById('seq-pitch-count').innerText = `${currentAbPitches.length} Pitches`;
+      const container = document.getElementById('sequence-list');
+      if (currentAbPitches.length === 0) {
+        container.innerHTML = `<div class="text-[11px] text-gray-500 italic text-center py-3">No pitches thrown this at-bat</div>`;
+        return;
+      }
+      container.innerHTML = currentAbPitches.map((pt, idx) => `
+        <div class="flex items-center justify-between p-1.5 rounded bg-gray-950 border border-gray-800/80">
+          <div class="flex items-center space-x-2">
+            <span class="text-[10px] font-mono text-gray-500">#${idx + 1}</span>
+            <span class="text-xs font-black text-emerald-400">${pt.pitchType}</span>
+            <span class="text-[11px] text-gray-300 font-medium">${formatCallName(pt.pitchCall)}</span>
+          </div>
+          <div class="flex items-center space-x-1.5 text-[10px] font-mono text-gray-400">
+            <span>${pt.ballsBefore}-${pt.strikesBefore}</span>
+            <span class="text-gray-600">|</span>
+            <span class="text-gray-400 font-bold">${pt.zoneDesc.split(' ')[0]}</span>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function renderArsenalTally() {
+      const pitchers = getActivePitchers();
+      if (pitchers.length === 0) return;
+      const p = pitchers[state.gameInfo.currentPitcherIndex];
+      document.getElementById('tally-pitcher-label').innerText = `${p.name} (${p.throws[0]}HP)`;
+
+      const pitcherPitches = state.pitches.filter(pt => pt.pitcherId === p.id);
+      const types = ['4S', 'SI', 'CT', 'SL', 'CB', 'CH', 'SPL'];
+      const tbody = document.getElementById('arsenal-table-body');
+      let topWeapon = "None", maxWhiffs = -1;
+
+      tbody.innerHTML = types.map(t => {
+        const matching = pitcherPitches.filter(pt => pt.pitchType === t);
+        const count = matching.length;
+        if (count === 0) return `<tr class="text-gray-600 hover:bg-gray-800/20"><td class="py-1 font-bold">${t}</td><td class="py-1 text-center font-bold">0</td><td class="py-1 text-center">-</td><td class="py-1 text-center">-</td><td class="py-1 text-center">-</td></tr>`;
+        
+        const strikes = matching.filter(pt => ['StrikeCalled', 'StrikeSwinging', 'FoulBall', 'InPlay'].includes(pt.pitchCall)).length;
+        const strPct = ((strikes / count) * 100).toFixed(0);
+        const swings = matching.filter(pt => ['StrikeSwinging', 'FoulBall', 'InPlay'].includes(pt.pitchCall)).length;
+        const whiffs = matching.filter(pt => pt.pitchCall === 'StrikeSwinging').length;
+        const whiffPct = swings > 0 ? ((whiffs / swings) * 100).toFixed(0) : "0";
+        const calledStrikes = matching.filter(pt => pt.pitchCall === 'StrikeCalled').length;
+        const cswPct = (((whiffs + calledStrikes) / count) * 100).toFixed(0);
+
+        if (whiffs > maxWhiffs && whiffs > 0) { maxWhiffs = whiffs; topWeapon = `${t} (${whiffs} Whiff${whiffs > 1 ? 's' : ''} / ${whiffPct}%)`; }
+
+        return `
+          <tr class="text-gray-300 hover:bg-gray-800/40">
+            <td class="py-1.5 font-bold text-emerald-400">${t}</td>
+            <td class="py-1.5 text-center font-bold text-white">${count}</td>
+            <td class="py-1.5 text-center">${strPct}%</td>
+            <td class="py-1.5 text-center text-purple-400 font-bold">${whiffPct}% <span class="text-[9px] text-gray-500">(${whiffs})</span></td>
+            <td class="py-1.5 text-center text-amber-400 font-bold">${cswPct}%</td>
+          </tr>
+        `;
+      }).join('');
+
+      document.getElementById('tally-top-weapon').innerText = topWeapon === "None" ? "Fastball" : topWeapon;
+
+      const zonePitches = pitcherPitches.filter(pt => pt.zone <= 4).length;
+      document.getElementById('tally-zone-rate').innerText = pitcherPitches.length > 0 ? `${((zonePitches / pitcherPitches.length) * 100).toFixed(1)}%` : "0.0%";
+
+      const earlyPitches = pitcherPitches.filter(pt => (pt.ballsBefore === 0 && pt.strikesBefore === 0) || (pt.ballsBefore === 1 && pt.strikesBefore === 0));
+      const earlyStr = earlyPitches.filter(pt => ['StrikeCalled', 'StrikeSwinging', 'FoulBall', 'InPlay'].includes(pt.pitchCall)).length;
+      document.getElementById('tally-early-str').innerText = earlyPitches.length > 0 ? `${((earlyStr / earlyPitches.length) * 100).toFixed(1)}%` : "0.0%";
+    }
+
+    // UPDATED TAB 3 RENDERER
+    function renderLineupManager() {
+      const team = state.teams[managingTeamId];
+      if(!team) return;
+
+      const lContainer = document.getElementById('roster-manage-lineup');
+      lContainer.innerHTML = team.lineup.map((b, idx) => `
+        <div onclick="openPlayerFormModal('lineup', ${b.id})" class="p-2 rounded bg-gray-950 border border-gray-800 hover:border-emerald-500 cursor-pointer transition">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-2">
+              <span class="text-[10px] font-black font-mono text-gray-500">#${b.order}</span>
+              <span class="text-xs font-bold text-white">${b.name}</span>
+              <span class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-gray-800 text-gray-300">${b.bats[0]}HH</span>
+            </div>
+          </div>
+          <div class="flex items-center justify-between mt-1 pt-1 border-t border-gray-900 text-[9px]">
+            <span class="font-mono text-gray-400">${b.stats ? `${b.stats.avg} AVG • ${b.stats.hr} HR` : ''}</span>
+            <div class="flex space-x-1">${renderArchetypeBadges(b.archetypes)}</div>
+          </div>
+        </div>
+      `).join('');
+
+      const bContainer = document.getElementById('roster-manage-bench');
+      bContainer.innerHTML = team.bench.map((b) => `
+        <div onclick="openPlayerFormModal('bench', ${b.id})" class="p-2 rounded bg-gray-950 border border-gray-800 hover:border-emerald-500 cursor-pointer transition flex justify-between items-center text-[10px]">
+          <div>
+            <span class="text-white font-bold">${b.name} <span class="text-gray-500">(${b.bats[0]}HH)</span></span>
+          </div>
+          <div class="flex space-x-1">${renderArchetypeBadges(b.archetypes)}</div>
+        </div>
+      `).join('');
+      
+      const pContainer = document.getElementById('roster-manage-pitchers');
+      pContainer.innerHTML = team.pitchers.map((p) => `
+        <div onclick="openPlayerFormModal('pitcher', ${p.id})" class="p-2 rounded bg-gray-950 border border-gray-800 hover:border-emerald-500 cursor-pointer transition flex justify-between items-center text-[10px]">
+          <span class="text-white font-bold">${p.name}</span>
+          <span class="font-mono px-1.5 py-0.5 rounded bg-gray-800 text-gray-300">${p.throws[0]}HP</span>
+        </div>
+      `).join('');
+    }
+
+    function renderGameLog() {
+      const tbody = document.getElementById('gamelog-table-body');
+      if (state.pitches.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="9" class="p-4 text-center text-gray-500 italic">No pitches recorded yet</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = state.pitches.slice().reverse().map(pt => `
+        <tr class="hover:bg-gray-800/40">
+          <td class="p-2 text-gray-500">${pt.pitchNo}</td>
+          <td class="p-2">${pt.isTop ? 'T' : 'B'}${pt.inning}</td>
+          <td class="p-2 text-white font-bold">${pt.pitcherName.split(',')[0]}</td>
+          <td class="p-2">${pt.batterName.split(',')[0]}</td>
+          <td class="p-2 text-emerald-400 font-bold">${pt.pitchType}</td>
+          <td class="p-2">${formatCallName(pt.pitchCall)}</td>
+          <td class="p-2 font-bold">${pt.ballsBefore}-${pt.strikesBefore}</td>
+          <td class="p-2 text-gray-400">${pt.zoneDesc.split(' ')[0]}</td>
+          <td class="p-2 ${pt.is1_1Win === true ? 'text-emerald-400 font-bold' : (pt.is1_1Win === false ? 'text-rose-400 font-bold' : 'text-gray-600')}">
+            ${pt.is1_1Win === true ? 'WIN' : (pt.is1_1Win === false ? 'LOSS' : '-')}
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function switchTab(tabId) {
+      ['charting', 'scouting', 'roster', 'gamelog'].forEach(t => {
+        const view = document.getElementById(`view-${t}`);
+        const btn = document.getElementById(`tab-btn-${t}`);
+        if (t === tabId) {
+          view.classList.remove('hidden');
+          btn.className = "py-2.5 border-b-2 border-emerald-500 text-emerald-400 flex items-center space-x-1.5 font-bold text-xs";
+        } else {
+          view.classList.add('hidden');
+          btn.className = "py-2.5 border-b-2 border-transparent text-gray-400 hover:text-gray-200 flex items-center space-x-1.5 font-bold text-xs";
+        }
+      });
+      lucide.createIcons();
+    }
+
+    function loadPlayerScoutingProfile(val) {
+      const [type, idStr] = val.split('-');
+      const id = parseInt(idStr);
+      
+      let p = null;
+      if (type === 'batter') {
+        p = getActiveLineup().find(b => b.id === id) || getActiveBench().find(b => b.id === id);
+      } else {
+        p = getActivePitchers().find(pi => pi.id === id);
+      }
+      
+      if (p) document.getElementById('scouting-text-input').value = p.notes || "";
+    }
+
+    function saveCurrentScoutingText(text) {
+      const val = document.getElementById('scouting-player-select').value;
+      const [type, idStr] = val.split('-');
+      const id = parseInt(idStr);
+      
+      let p = null;
+      if (type === 'batter') {
+        p = getActiveLineup().find(b => b.id === id) || getActiveBench().find(b => b.id === id);
+      } else {
+        p = getActivePitchers().find(pi => pi.id === id);
+      }
+      if (p) {
+        p.notes = text;
+        saveState();
+        renderCurrentBatter();
+      }
+    }
+
+    function toggleScoutTag(tagName) {
+      const val = document.getElementById('scouting-player-select').value;
+      const [type, idStr] = val.split('-');
+      if (type !== 'batter') { alert("Quick tags are configured for hitters"); return; }
+      
+      const b = getActiveLineup().find(x => x.id === parseInt(idStr)) || getActiveBench().find(x => x.id === parseInt(idStr));
+      if (!b) return;
+      if (!b.tags) b.tags = [];
+      const idx = b.tags.indexOf(tagName);
+      if (idx === -1) b.tags.push(tagName); else b.tags.splice(idx, 1);
+      
+      saveState(); renderCurrentBatter();
+      showQuickToast(`Updated scouting tags for ${b.name}`);
+    }
+
+    function exportToCSV() {
+      if (state.pitches.length === 0) { alert("No pitches to export yet!"); return; }
+
+      const headers = [
+        "PitchNo", "Time", "Inning", "Top/Bottom", "Outs", "Balls", "Strikes",
+        "Pitcher", "PitcherThrows", "Batter", "BatterSide",
+        "TaggedPitchType", "PitchCall", "TaggedHitType", "PlayResult",
+        "Zone", "ZoneDescription", "Is1_1Count", "Is1_1Win"
+      ];
+
+      const rows = state.pitches.map(p => [
+        p.pitchNo, `"${p.timestamp}"`, p.inning, p.isTop ? "Top" : "Bottom",
+        p.outsBefore, p.ballsBefore, p.strikesBefore, `"${p.pitcherName}"`, p.pitcherThrows,
+        `"${p.batterName}"`, p.batterSide, `"${p.taggedPitchType}"`, `"${p.pitchCall}"`,
+        `"${p.hitType}"`, `"${p.playResult}"`, p.zone, `"${p.zoneDesc}"`, p.is1_1Count ? 1 : 0,
+        p.is1_1Win === true ? 1 : (p.is1_1Win === false ? 0 : "")
+      ]);
+
+      const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", `TrackMan_Matchup_${state.gameInfo.date}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+
+    function confirmResetGame() {
+      if (confirm("Reset current game tracking? (Ensure you downloaded the CSV first!)")) {
+        const oldTeams = JSON.parse(JSON.stringify(state.teams)); // preserve teams
+        state = JSON.parse(JSON.stringify(DEFAULT_APP_STATE));
+        state.teams = oldTeams; // restore teams after wipe
+        saveState(); renderAllViews();
+        showQuickToast("Started fresh game tracking session");
+      }
+    }
+
+    function formatCallName(call) {
+      const map = { 'BallCalled': 'Ball', 'StrikeCalled': 'Called Str', 'StrikeSwinging': 'Whiff', 'FoulBall': 'Foul', 'HitByPitch': 'HBP', 'InPlay': 'In Play' };
+      return map[call] || call;
+    }
+
+    function formatInningOrdinal(n) {
+      const s = ["th", "st", "nd", "rd"], v = n % 100;
+      return n + (s[(v - 20) % 10] || s[v] || s[0]);
+    }
+  </script>
+</body>
+</html>
